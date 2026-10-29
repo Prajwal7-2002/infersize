@@ -18,4 +18,3 @@ __all__ = [
     "list_models",
     "list_gpus",
 ]
-

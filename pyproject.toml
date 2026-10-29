@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "infersize"
+version = "0.1.0"
+description = "Analytical performance modeling, VRAM capacity planning, and hardware roofline prediction for LLM serving."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Prajwal Pujari", email = "prajwalpujari16@gmail.com" }]
+keywords = [
+    "llm",
+    "inference",
+    "vram",
+    "performance-modeling",
+    "capacity-planning",
+    "roofline",
+    "serving",
+    "hardware",
+    "latency",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Benchmark",
+    "Topic :: System :: Hardware",
+]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13",
+    "pydantic>=2.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+infersize = "infersize.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/Prajwal7-2002/infersize"
+Documentation = "https://prajwal7-2002.github.io/infersize/"
+Repository = "https://github.com/Prajwal7-2002/infersize.git"
+Issues = "https://github.com/Prajwal7-2002/infersize/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/infersize"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=src/infersize --cov-report=term-missing"
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I"]
+ignore = ["B008", "E501", "B904"]

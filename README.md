@@ -40,6 +40,7 @@ Renting GPU clusters just to discover a model runs out of memory or costs 10x mo
 * **Capacity Solvers**:
   * `max-batch`: Solves for the maximum concurrent users a GPU can host before VRAM exhaustion.
   * `max-context`: Solves for the maximum supported sequence length before OOM.
+* **Architecture RFC & Sizing Report Generator (`infersize report`)**: Generates and exports publication-ready Markdown or JSON capacity specifications with executive summaries, physical memory breakdowns, multi-GPU comparison matrices, and cloud TCO economics.
 * **Machine-Readable Automation (`--json`)**: Emits structured JSON schemas for CI/CD gates and infrastructure automation.
 * **Hardware Profiles Built-in**: NVIDIA RTX 3050, 4060, 4090, Tesla T4, L4, A100 (40GB/80GB), H100 (80GB), H200 (141GB), and Apple Silicon M3 Max (36GB/128GB).
 * **Zero GPU Dependencies**: Pure Python, runs instantaneously on Windows, macOS, and Linux.
@@ -162,7 +163,29 @@ infersize max-context --model qwen2.5-7b --gpu rtx3050 --quant int4 --batch-size
 
 ---
 
-### 6. Inspect Built-in Hardware & Models
+### 6. Export Architecture RFC & Capacity Sizing Report
+
+Generate an engineering RFC report for deployment documentation, GitHub PRs, or infrastructure tickets:
+
+```bash
+infersize report --model qwen2.5-7b --gpu rtx4090 --batch-size 16 --context 2048 --output deployment_rfc.md
+```
+
+Output:
+```text
+╭──────────────── ⚡ INFERSIZE: SPECIFICATION EXPORT COMPLETE ─────────────────╮
+│ ✔ Architecture RFC Report exported successfully!                             │
+│                                                                              │
+│ 📁 Destination: deployment_rfc.md                                            │
+│ 📊 Model: qwen2.5-7b | GPU: NVIDIA GeForce RTX 4090 (24GB) (TP=1)            │
+│ 💰 Unit Economics: $0.1621 / 1M tokens                                       │
+│                                                                              │
+│ Ready to drop directly into GitHub PRs, Engineering RFCs, or infrastructure  │
+│ tickets.                                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### 7. Inspect Built-in Hardware & Models
 
 ```bash
 infersize models

@@ -6,6 +6,12 @@ from infersize.analytics.comparison import (
     GPUComparisonReport,
     compare_gpus_for_workload,
 )
+from infersize.analytics.cost import (
+    CostEstimateResult,
+    MultiGPUCostReport,
+    compare_cloud_costs_for_workload,
+    estimate_serving_cost,
+)
 from infersize.analytics.vram import (
     VRAMEstimateResult,
     calculate_activation_memory_gb,
@@ -30,4 +36,8 @@ __all__ = [
     "GPUComparisonReport",
     "compare_gpus_for_workload",
     "DEFAULT_COMPARISON_GPUS",
+    "CostEstimateResult",
+    "MultiGPUCostReport",
+    "estimate_serving_cost",
+    "compare_cloud_costs_for_workload",
 ]

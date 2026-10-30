@@ -24,11 +24,16 @@ from infersize import __version__
 from infersize.analytics.comparison import (
     compare_gpus_for_workload,
 )
+from infersize.analytics.cost import (
+    compare_cloud_costs_for_workload,
+    estimate_serving_cost,
+)
 from infersize.analytics.vram import (
     estimate_vram_usage,
     find_max_concurrent_batch_size,
     find_max_context_length,
 )
+from infersize.hardware.pricing import CLOUD_GPU_PRICING
 from infersize.hardware.specs import GPU_PRESETS, get_gpu_profile
 from infersize.models.specs import MODEL_PRESETS, get_model_spec
 
@@ -306,6 +311,238 @@ def compare(
                 box=box.ROUNDED,
             )
         )
+    console.print()
+
+
+@app.command()
+def cost(
+    model: str = typer.Option(
+        "qwen2.5-7b", "--model", "-m", help="Model name or architecture preset"
+    ),
+    gpu: str = typer.Option("rtx4090", "--gpu", "-g", help="GPU hardware profile preset"),
+    quant: str = typer.Option(
+        "fp16", "--quant", "-q", help="Weight precision (fp16, int8, fp8, int4, bitnet)"
+    ),
+    kv_cache: str = typer.Option(
+        "fp16", "--kv-cache", "-k", help="KV cache dtype (fp16, int8, fp8, int4)"
+    ),
+    batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent serving batch size"),
+    context: int = typer.Option(2048, "--context", "-c", help="Sequence context length in tokens"),
+    provider: str = typer.Option(
+        "runpod", "--provider", "-p", help="Cloud provider preset (runpod, lambda, aws, gcp)"
+    ),
+    rate: float | None = typer.Option(
+        None, "--rate", "-r", help="Custom hourly rental rate override in USD per GPU"
+    ),
+    tensor_parallel: int = typer.Option(1, "--tp", help="Tensor parallelism degree (TP)"),
+    compare_all: bool = typer.Option(
+        False, "--compare-all", help="Compare cost and throughput across standard candidate GPUs"
+    ),
+    compare_clouds: bool = typer.Option(
+        False,
+        "--compare-clouds",
+        help="Compare hourly cost and $/1M tokens across all cloud providers",
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output result as JSON for automated pipelines and CI"
+    ),
+):
+    """Predict memory-bandwidth decode throughput, TPOT latency, and $/1M tokens serving cost."""
+    try:
+        model_spec = get_model_spec(model)
+        gpu_spec = get_gpu_profile(gpu)
+    except ValueError as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise typer.Exit(code=1)
+
+    if compare_all:
+        multi_report = compare_cloud_costs_for_workload(
+            model=model_spec,
+            precision=quant,
+            kv_cache_dtype=kv_cache,
+            batch_size=batch_size,
+            context_tokens=context,
+            provider=provider,
+            tensor_parallel=tensor_parallel,
+        )
+        if json_output:
+            console.print_json(multi_report.model_dump_json(indent=2))
+            return
+
+        console.print()
+        console.print(
+            Panel(
+                f"[bold cyan]Model:[/] {multi_report.model_name} | "
+                f"[bold yellow]Precision:[/] {multi_report.precision.upper()} | "
+                f"[bold white]Batch:[/] {multi_report.batch_size} | "
+                f"[bold white]Context:[/] {multi_report.context_tokens:,} tokens | "
+                f"[bold magenta]Provider:[/] {provider.upper()}",
+                title="[bold yellow]⚡ INFERSIZE: CLOUD HARDWARE COST & THROUGHPUT MATRIX[/]",
+                box=box.ROUNDED,
+            )
+        )
+        t = Table(box=box.ROUNDED, show_header=True, header_style="bold cyan")
+        t.add_column("GPU Profile", style="bold")
+        t.add_column("Rate ($/hr)", justify="right")
+        t.add_column("Throughput (tok/s)", justify="right")
+        t.add_column("TPOT (ms)", justify="right")
+        t.add_column("Capacity (tok/hr)", justify="right")
+        t.add_column("Cost / 1M Tokens", justify="right", style="bold green")
+        t.add_column("Status", justify="center")
+
+        for r in multi_report.results:
+            if not r.fits_in_vram:
+                t.add_row(
+                    r.gpu_id,
+                    f"${r.total_cluster_hourly_usd:.2f}",
+                    "--",
+                    "--",
+                    "--",
+                    "--",
+                    "[bold red]✘ OOM[/]",
+                )
+            else:
+                t.add_row(
+                    r.gpu_id,
+                    f"${r.total_cluster_hourly_usd:.2f}",
+                    f"{r.aggregate_tokens_per_sec:.1f}",
+                    f"{r.time_per_output_token_ms:.1f} ms",
+                    f"{r.tokens_per_hour:,.0f}",
+                    f"${r.cost_per_million_tokens_usd:.4f}",
+                    "[green]✔ FITS[/]",
+                )
+        console.print(t)
+        if multi_report.lowest_cost_setup:
+            console.print(
+                Panel(
+                    f"🏆 [bold green]Lowest Unit Cost Setup:[/] [bold white]{multi_report.lowest_cost_setup.gpu_id}[/] at "
+                    f"[bold green]${multi_report.lowest_cost_setup.cost_per_million_tokens_usd:.4f} / 1M tokens[/] "
+                    f"(${multi_report.lowest_cost_setup.total_cluster_hourly_usd:.2f}/hr)",
+                    box=box.ROUNDED,
+                )
+            )
+        console.print()
+        return
+
+    res = estimate_serving_cost(
+        model=model_spec,
+        gpu=gpu_spec,
+        precision=quant,
+        kv_cache_dtype=kv_cache,
+        batch_size=batch_size,
+        context_tokens=context,
+        tensor_parallel=tensor_parallel,
+        provider=provider,
+        custom_hourly_rate=rate,
+    )
+
+    if json_output:
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    status_str = (
+        "[bold green]✔ FIT - CAPACITY NORMAL[/]"
+        if res.fits_in_vram
+        else f"[bold red]✘ OOM DEFICIT (-{res.oom_deficit_gb:.1f} GB)[/]"
+    )
+
+    console.print()
+    console.print(
+        Panel(
+            f"[bold cyan]Model:[/] {res.model_name} | [bold magenta]GPU:[/] {res.gpu_name} (TP={res.tensor_parallel})\n"
+            f"[bold yellow]Provider:[/] {res.provider.upper()} (${res.total_cluster_hourly_usd:.2f}/hr cluster) | "
+            f"[bold white]Batch:[/] {res.batch_size} | [bold white]Context:[/] {res.context_tokens:,} tokens\n"
+            f"[bold]Status:[/] {status_str}",
+            title="[bold yellow]⚡ INFERSIZE: CLOUD SERVING ROOFLINE & TCO ANALYSIS[/]",
+            box=box.ROUNDED,
+        )
+    )
+
+    if not res.fits_in_vram:
+        console.print(
+            f"[bold red]Error:[/] Workload exceeds physical VRAM by {res.oom_deficit_gb:.1f} GB. "
+            "Cannot compute throughput without quantization or tensor parallelism.\n"
+        )
+        return
+
+    table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold cyan")
+    table.add_column("Metric", style="bold")
+    table.add_column("Value", justify="right")
+    table.add_column("Engineering Insight")
+
+    table.add_row(
+        "[cyan]Memory Bandwidth[/]",
+        f"{res.memory_bandwidth_gb_s:.0f} GB/s (Eff: {res.effective_bandwidth_gb_s:.1f} GB/s)",
+        f"Assumes {res.bus_efficiency * 100:.0f}% memory bus saturation",
+    )
+    table.add_row(
+        "[cyan]DRAM Read / Step[/]",
+        f"{res.total_dram_bytes_per_step / 1e9:.2f} GB",
+        f"Weights: {res.weight_bytes_per_step / 1e9:.2f} GB, KV-Cache: {res.kv_bytes_per_step / 1e9:.2f} GB",
+    )
+    table.add_row(
+        "[yellow]Time Per Output Token (TPOT)[/]",
+        f"{res.time_per_output_token_ms:.1f} ms",
+        f"{res.tokens_per_sec_per_user:.1f} tok/s per user stream",
+    )
+    table.add_row(
+        "[yellow]Aggregate Throughput[/]",
+        f"{res.aggregate_tokens_per_sec:.1f} tok/s",
+        f"Total generation across B={res.batch_size} concurrent streams",
+    )
+    table.add_row(
+        "[magenta]Hourly Token Capacity[/]",
+        f"{res.tokens_per_hour:,.0f} tokens/hr",
+        "Maximum tokens generated per running hour",
+    )
+    table.add_section()
+    table.add_row(
+        "[bold white]Cluster Rental Rate[/]",
+        f"[bold white]${res.total_cluster_hourly_usd:.2f} / hr[/]",
+        f"${res.hourly_rate_usd:.2f}/hr per GPU x {res.tensor_parallel} GPUs",
+    )
+    table.add_row(
+        "[bold green]COST PER 1M TOKENS[/]",
+        f"[bold green]${res.cost_per_million_tokens_usd:.4f}[/]",
+        "Direct operational unit cost per million generated tokens",
+    )
+    table.add_row(
+        "[bold blue]24/7 Dedicated Monthly[/]",
+        f"[bold blue]${res.monthly_dedicated_cost_usd:.2f} / mo[/]",
+        "Baseline idle cluster rental (730 continuous hours)",
+    )
+
+    console.print(table)
+
+    if compare_clouds:
+        gpu_id_key = gpu_spec.name
+        cloud_table = Table(
+            title=f"Cloud Provider Price Comparison for {gpu_spec.display_name}",
+            box=box.ROUNDED,
+            header_style="bold magenta",
+        )
+        cloud_table.add_column("Provider", style="bold")
+        cloud_table.add_column("Hourly / GPU", justify="right")
+        cloud_table.add_column("Total Cluster / Hr", justify="right")
+        cloud_table.add_column("Cost / 1M Tokens", justify="right", style="bold green")
+        cloud_table.add_column("Monthly (730h)", justify="right")
+
+        for p_name in ["runpod", "lambda", "aws", "gcp"]:
+            p_rate = CLOUD_GPU_PRICING.get(p_name, {}).get(gpu_id_key)
+            if p_rate is not None:
+                p_cluster_hr = p_rate * res.tensor_parallel
+                p_cost_1m = (
+                    (p_cluster_hr / res.tokens_per_hour) * 1e6 if res.tokens_per_hour > 0 else 0.0
+                )
+                cloud_table.add_row(
+                    p_name.upper(),
+                    f"${p_rate:.2f}",
+                    f"${p_cluster_hr:.2f}",
+                    f"${p_cost_1m:.4f}",
+                    f"${p_cluster_hr * 730:.2f}",
+                )
+        console.print(cloud_table)
+
     console.print()
 
 

@@ -1,5 +1,11 @@
-"""Analytics, VRAM capacity modeling, and latency estimations."""
+"""Analytics, VRAM capacity modeling, hardware comparisons, and latency estimations."""
 
+from infersize.analytics.comparison import (
+    DEFAULT_COMPARISON_GPUS,
+    GPUComparisonItem,
+    GPUComparisonReport,
+    compare_gpus_for_workload,
+)
 from infersize.analytics.vram import (
     VRAMEstimateResult,
     calculate_activation_memory_gb,
@@ -20,4 +26,8 @@ __all__ = [
     "estimate_vram_usage",
     "find_max_context_length",
     "find_max_concurrent_batch_size",
+    "GPUComparisonItem",
+    "GPUComparisonReport",
+    "compare_gpus_for_workload",
+    "DEFAULT_COMPARISON_GPUS",
 ]

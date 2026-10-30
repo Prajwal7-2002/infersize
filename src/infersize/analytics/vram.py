@@ -42,6 +42,7 @@ class VRAMEstimateResult(BaseModel):
     batch_size: int
     context_tokens: int
     total_parameters: int
+    tensor_parallel: int = Field(default=1, description="Tensor parallelism degree (TP)")
 
     # Memory components in Gigabytes (1 GB = 10^9 bytes)
     weight_memory_gb: float = Field(description="Memory required for model weights in GB")
@@ -80,12 +81,13 @@ def calculate_kv_cache_bytes_per_token(
 def calculate_weight_memory_gb(
     model: ModelArch,
     precision: str = "fp16",
+    tensor_parallel: int = 1,
 ) -> float:
-    """Calculate physical VRAM footprint in GB for model weights."""
+    """Calculate physical VRAM footprint in GB for model weights per GPU."""
     prec_key = precision.lower().strip()
     bytes_per_param = BYTES_PER_PARAM.get(prec_key, 2.0)
     total_params = model.calculate_total_parameters()
-    total_bytes = total_params * bytes_per_param
+    total_bytes = (total_params * bytes_per_param) / max(1, tensor_parallel)
     return total_bytes / 1e9
 
 
@@ -94,10 +96,11 @@ def calculate_kv_cache_total_gb(
     batch_size: int,
     context_tokens: int,
     kv_cache_dtype: str = "fp16",
+    tensor_parallel: int = 1,
 ) -> float:
-    """Calculate total KV-cache footprint in GB for a given batch and context."""
+    """Calculate total KV-cache footprint in GB for a given batch and context per GPU."""
     bytes_per_token = calculate_kv_cache_bytes_per_token(model, kv_cache_dtype)
-    total_bytes = bytes_per_token * batch_size * context_tokens
+    total_bytes = (bytes_per_token * batch_size * context_tokens) / max(1, tensor_parallel)
     return total_bytes / 1e9
 
 
@@ -106,21 +109,25 @@ def calculate_activation_memory_gb(
     batch_size: int,
     context_tokens: int,
     use_flash_attention: bool = True,
+    tensor_parallel: int = 1,
 ) -> float:
-    """Estimate temporary forward-pass activation memory in GB.
+    """Estimate temporary forward-pass activation memory in GB per GPU.
 
     With FlashAttention, activation memory is linear O(B * S * hidden_size) rather
     than quadratic O(B * heads * S^2) because intermediate attention matrices are never materialized.
     """
+    tp = max(1, tensor_parallel)
     if use_flash_attention:
         # Standard FlashAttention-2 working buffer per layer: ~4 * B * S * hidden_size * 2 bytes
-        layer_act_bytes = 4 * batch_size * context_tokens * model.hidden_size * 2
+        layer_act_bytes = (4 * batch_size * context_tokens * model.hidden_size * 2) / tp
         # PyTorch allocator keeps activations for the currently executing layer
         total_act_bytes = layer_act_bytes * 2  # Double buffer safety margin
     else:
         # Naive SDPA materializes attention score matrix (B, heads, S, S)
-        attn_matrix_bytes = batch_size * model.num_attention_heads * (context_tokens**2) * 2
-        total_act_bytes = attn_matrix_bytes + (batch_size * context_tokens * model.hidden_size * 4)
+        attn_matrix_bytes = (batch_size * model.num_attention_heads * (context_tokens**2) * 2) / tp
+        total_act_bytes = attn_matrix_bytes + (
+            (batch_size * context_tokens * model.hidden_size * 4) / tp
+        )
 
     return max(0.05, total_act_bytes / 1e9)
 
@@ -133,12 +140,18 @@ def estimate_vram_usage(
     batch_size: int = 1,
     context_tokens: int = 2048,
     use_flash_attention: bool = True,
+    tensor_parallel: int = 1,
 ) -> VRAMEstimateResult:
     """Perform rigorous analytical VRAM capacity estimation for a serving workload."""
+    tp = max(1, tensor_parallel)
     total_params = model.calculate_total_parameters()
-    weight_gb = calculate_weight_memory_gb(model, precision)
-    kv_gb = calculate_kv_cache_total_gb(model, batch_size, context_tokens, kv_cache_dtype)
-    act_gb = calculate_activation_memory_gb(model, batch_size, context_tokens, use_flash_attention)
+    weight_gb = calculate_weight_memory_gb(model, precision, tensor_parallel=tp)
+    kv_gb = calculate_kv_cache_total_gb(
+        model, batch_size, context_tokens, kv_cache_dtype, tensor_parallel=tp
+    )
+    act_gb = calculate_activation_memory_gb(
+        model, batch_size, context_tokens, use_flash_attention, tensor_parallel=tp
+    )
     overhead_gb = gpu.cuda_overhead_gb
 
     total_required = weight_gb + kv_gb + act_gb + overhead_gb
@@ -158,6 +171,7 @@ def estimate_vram_usage(
         batch_size=batch_size,
         context_tokens=context_tokens,
         total_parameters=total_params,
+        tensor_parallel=tp,
         weight_memory_gb=round(weight_gb, 3),
         kv_cache_memory_gb=round(kv_gb, 3),
         activation_memory_gb=round(act_gb, 3),
@@ -179,9 +193,11 @@ def find_max_context_length(
     batch_size: int = 1,
     kv_cache_dtype: str = "fp16",
     safety_margin_gb: float = 0.5,
+    tensor_parallel: int = 1,
 ) -> int:
     """Analytically solve for the maximum context window before OOM."""
-    weight_gb = calculate_weight_memory_gb(model, precision)
+    tp = max(1, tensor_parallel)
+    weight_gb = calculate_weight_memory_gb(model, precision, tensor_parallel=tp)
     overhead_gb = gpu.cuda_overhead_gb + safety_margin_gb
     fixed_gb = weight_gb + overhead_gb
 
@@ -189,7 +205,7 @@ def find_max_context_length(
     if available_for_kv_act <= 0:
         return 0
 
-    bytes_per_token = calculate_kv_cache_bytes_per_token(model, kv_cache_dtype) * batch_size
+    bytes_per_token = (calculate_kv_cache_bytes_per_token(model, kv_cache_dtype) * batch_size) / tp
     # Solve linear equation: context * bytes_per_token <= available_bytes
     max_tokens = int((available_for_kv_act * 1e9) / bytes_per_token)
     return max(0, max_tokens)
@@ -202,9 +218,11 @@ def find_max_concurrent_batch_size(
     context_tokens: int = 2048,
     kv_cache_dtype: str = "fp16",
     safety_margin_gb: float = 0.5,
+    tensor_parallel: int = 1,
 ) -> int:
     """Analytically solve for the maximum concurrent request batch size before OOM."""
-    weight_gb = calculate_weight_memory_gb(model, precision)
+    tp = max(1, tensor_parallel)
+    weight_gb = calculate_weight_memory_gb(model, precision, tensor_parallel=tp)
     overhead_gb = gpu.cuda_overhead_gb + safety_margin_gb
     fixed_gb = weight_gb + overhead_gb
 
@@ -212,6 +230,8 @@ def find_max_concurrent_batch_size(
     if available_for_kv <= 0:
         return 0
 
-    kv_per_stream_bytes = calculate_kv_cache_bytes_per_token(model, kv_cache_dtype) * context_tokens
+    kv_per_stream_bytes = (
+        calculate_kv_cache_bytes_per_token(model, kv_cache_dtype) * context_tokens
+    ) / tp
     max_batch = int((available_for_kv * 1e9) / kv_per_stream_bytes)
     return max(0, max_batch)

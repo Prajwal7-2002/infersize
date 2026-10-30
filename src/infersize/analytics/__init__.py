@@ -12,6 +12,10 @@ from infersize.analytics.cost import (
     compare_cloud_costs_for_workload,
     estimate_serving_cost,
 )
+from infersize.analytics.report import (
+    ArchitectureReport,
+    generate_architecture_report,
+)
 from infersize.analytics.vram import (
     VRAMEstimateResult,
     calculate_activation_memory_gb,
@@ -40,4 +44,6 @@ __all__ = [
     "MultiGPUCostReport",
     "estimate_serving_cost",
     "compare_cloud_costs_for_workload",
+    "ArchitectureReport",
+    "generate_architecture_report",
 ]

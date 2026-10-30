@@ -20,6 +20,8 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+from rich.markdown import Markdown
+
 from infersize import __version__
 from infersize.analytics.comparison import (
     compare_gpus_for_workload,
@@ -28,6 +30,7 @@ from infersize.analytics.cost import (
     compare_cloud_costs_for_workload,
     estimate_serving_cost,
 )
+from infersize.analytics.report import generate_architecture_report
 from infersize.analytics.vram import (
     estimate_vram_usage,
     find_max_concurrent_batch_size,
@@ -544,6 +547,90 @@ def cost(
         console.print(cloud_table)
 
     console.print()
+
+
+@app.command()
+def report(
+    model: str = typer.Option(
+        "qwen2.5-7b", "--model", "-m", help="Model name or architecture preset"
+    ),
+    gpu: str = typer.Option("rtx4090", "--gpu", "-g", help="Target GPU hardware profile preset"),
+    quant: str = typer.Option(
+        "fp16", "--quant", "-q", help="Weight precision (fp16, int8, fp8, int4, bitnet)"
+    ),
+    kv_cache: str = typer.Option(
+        "fp16", "--kv-cache", "-k", help="KV cache dtype (fp16, int8, fp8, int4)"
+    ),
+    batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent serving batch size"),
+    context: int = typer.Option(2048, "--context", "-c", help="Sequence context length in tokens"),
+    provider: str = typer.Option(
+        "runpod", "--provider", "-p", help="Cloud provider preset (runpod, lambda, aws, gcp)"
+    ),
+    rate: float | None = typer.Option(
+        None, "--rate", "-r", help="Custom hourly rental rate override in USD per GPU"
+    ),
+    tensor_parallel: int = typer.Option(1, "--tp", help="Tensor parallelism degree (TP)"),
+    output: str | None = typer.Option(
+        None, "--output", "-o", help="File path to save the generated Markdown RFC report"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output complete report specification as JSON"
+    ),
+):
+    """Generate and export a publication-ready Architecture RFC and Sizing Specification."""
+    try:
+        model_spec = get_model_spec(model)
+        gpu_spec = get_gpu_profile(gpu)
+    except ValueError as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise typer.Exit(code=1)
+
+    rep = generate_architecture_report(
+        model=model_spec,
+        gpu=gpu_spec,
+        precision=quant,
+        kv_cache_dtype=kv_cache,
+        batch_size=batch_size,
+        context_tokens=context,
+        tensor_parallel=tensor_parallel,
+        provider=provider,
+        custom_hourly_rate=rate,
+    )
+
+    if json_output:
+        console.print_json(rep.model_dump_json(indent=2))
+        return
+
+    md_content = rep.to_markdown()
+
+    if output:
+        try:
+            with open(output, "w", encoding="utf-8") as f:
+                f.write(md_content)
+            console.print()
+            console.print(
+                Panel(
+                    f"✔ [bold green]Architecture RFC Report exported successfully![/]\n\n"
+                    f"📁 [bold white]Destination:[/] {output}\n"
+                    f"📊 [bold cyan]Model:[/] {rep.model_name} | [bold magenta]GPU:[/] {rep.gpu_name} (TP={rep.tensor_parallel})\n"
+                    f"💰 [bold yellow]Unit Economics:[/] ${rep.cost_estimate.cost_per_million_tokens_usd:.4f} / 1M tokens\n\n"
+                    f"[dim]Ready to drop directly into GitHub PRs, Engineering RFCs, or infrastructure tickets.[/]",
+                    title="[bold green]⚡ INFERSIZE: SPECIFICATION EXPORT COMPLETE[/]",
+                    box=box.ROUNDED,
+                )
+            )
+            console.print()
+        except OSError as e:
+            console.print(f"[bold red]Error writing output file:[/] {e}")
+            raise typer.Exit(code=1)
+    else:
+        # Render markdown to terminal
+        console.print()
+        console.print(Markdown(md_content))
+        console.print()
+        console.print(
+            "[dim]Tip: Use [bold white]--output deployment_rfc.md[/] to export this report to a Markdown file.[/]\n"
+        )
 
 
 @app.command()

@@ -1,7 +1,7 @@
 # infersize ⚡
 
-> **Analytical Performance Modeling & VRAM Capacity Planner for LLM Serving.**  
-> Predict exact memory footprints, KV-cache scaling, multi-GPU comparison matrices, and hardware limits before downloading a model or spending thousands on GPU clusters.
+> **Analytical Performance Modeling, Cloud Cost ($/1M tokens) & VRAM Capacity Planner for LLM Serving.**  
+> Predict exact memory footprints, decode throughput, KV-cache scaling, multi-GPU comparison matrices, and cloud serving costs before downloading a model or spending thousands on GPU clusters.
 
 [![CI](https://github.com/Prajwal7-2002/infersize/actions/workflows/ci.yml/badge.svg)](https://github.com/Prajwal7-2002/infersize/actions)
 [![PyPI version](https://img.shields.io/pypi/v/infersize.svg?color=blue)](https://pypi.org/project/infersize/)
@@ -15,12 +15,12 @@
 
 Every engineer deploying local or cloud LLMs asks the same questions:
 * *"Can I run Qwen-2.5-7B on my 6GB RTX 3050 laptop?"*
-* *"Which GPU should I rent on RunPod or AWS for the lowest cost without running out of memory?"*
+* *"Which GPU should I rent on RunPod, Lambda, or AWS for the lowest cost without running out of memory?"*
+* *"What is my actual operational cost per 1 Million generated tokens ($/1M tokens) at batch size 16?"*
 * *"How many concurrent users can an 80GB A100 serve at 4,000 context length before crashing with Out-Of-Memory (OOM)?"*
-* *"How much VRAM does INT8 KV-cache actually save compared to FP16?"*
 
-Renting GPU clusters just to discover a model runs out of memory costs time and money.  
-**`infersize` solves this with rigorous analytical physics**: it computes exact parameter bytes, KV-cache tensor dimensions, FlashAttention activation peaks, and multi-accelerator capacity rankings in **< 10 milliseconds on any CPU**.
+Renting GPU clusters just to discover a model runs out of memory or costs 10x more than closed APIs burns engineering time and cloud budgets.  
+**`infersize` solves this with rigorous analytical physics**: it computes exact parameter bytes, KV-cache tensor dimensions, memory-bandwidth bound decode throughput, and cloud unit economics in **< 10 milliseconds on any CPU**.
 
 ---
 
@@ -28,7 +28,13 @@ Renting GPU clusters just to discover a model runs out of memory costs time and 
 
 * **Rigorous Mathematical Accounting**: Derives exact parameter counts and tensor bytes directly from architectural specs (layers, hidden dims, GQA heads, SwiGLU FFNs).
 * **Multi-GPU Comparison Matrix (`infersize compare`)**: Evaluates a model workload across candidate accelerators side-by-side, flags OOM deficits, and identifies the **Right-Sized / Cost-Effective GPU** vs **Peak Throughput GPU**.
-* **Tensor Parallelism (TP) Modeling**: Partitions weights, KV cache, and activations across $N$ GPUs analytically.
+* **Cloud Cost & TCO Engine (`infersize cost`)**:
+  * Models memory-bandwidth decode throughput ($\text{tok/s} = \frac{B \cdot \text{BW} \cdot \eta}{W + KV}$).
+  * Computes Time Per Output Token (TPOT latency in ms).
+  * Direct cloud unit economics: **\$ / 1 Million Tokens** and monthly 24/7 dedicated hosting cost.
+  * Built-in pricing for **RunPod**, **Lambda Labs**, **AWS EC2**, and **Google Cloud (GCP)**.
+  * Cross-cloud comparison matrix (`--compare-clouds`) and hardware comparison (`--compare-all`).
+* **Tensor Parallelism (TP) Modeling**: Partitions weights, KV cache, activations, and cluster rental rates across $N$ GPUs analytically.
 * **Multi-Precision Support**: Models memory footprint across `FP32`, `FP16`/`BF16`, `INT8`/`FP8`, `INT4`/`FP4`, and `BitNet 1.58b`.
 * **Sub-Byte KV-Cache Scaling**: Accurately models KV-cache savings for `FP16`, `INT8`, and `INT4` KV quantization.
 * **Capacity Solvers**:
@@ -47,7 +53,57 @@ Renting GPU clusters just to discover a model runs out of memory costs time and 
 pip install infersize
 ```
 
-### 1. Multi-GPU Comparison Matrix
+### 1. Cloud Cost & Throughput Sizing ($/1M Tokens)
+
+Predict generation throughput, TPOT latency, and cost per million tokens:
+
+```bash
+infersize cost --model qwen2.5-7b --gpu rtx4090 --batch-size 16 --context 2048
+```
+
+Output:
+```text
+╭──────────── ⚡ INFERSIZE: CLOUD SERVING ROOFLINE & TCO ANALYSIS ─────────────╮
+│ Model: qwen2.5-7b | GPU: NVIDIA GeForce RTX 4090 (24GB) (TP=1)               │
+│ Provider: RUNPOD ($0.44/hr cluster) | Batch: 16 | Context: 2,048 tokens      │
+│ Status: ✔ FIT - CAPACITY NORMAL                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+  Metric                                      Value   Engineering Insight
+ ───────────────────────────────────────────────────────────────────────────────
+  Memory Bandwidth            1008 GB/s (Eff: 806.4   Assumes 80% memory bus
+                                              GB/s)   saturation
+  DRAM Read / Step                         17.11 GB   Weights: 15.23 GB, KV-Cache: 1.88 GB
+  Time Per Output Token                     21.2 ms   47.1 tok/s per user stream
+  (TPOT)
+  Aggregate Throughput                  754.1 tok/s   Total generation across B=16 streams
+  Hourly Token Capacity         2,714,704 tokens/hr   Maximum tokens generated per running hour
+ ───────────────────────────────────────────────────────────────────────────────
+  Cluster Rental Rate                    $0.44 / hr   $0.44/hr per GPU x 1 GPUs
+  COST PER 1M TOKENS                        $0.1621   Direct operational unit cost
+  24/7 Dedicated Monthly               $321.20 / mo   Baseline idle cluster rental (730h)
+```
+
+Compare costs across cloud providers for a single GPU:
+```bash
+infersize cost --model qwen2.5-7b --gpu a100-80gb --compare-clouds
+```
+
+Output:
+```text
+       Cloud Provider Price Comparison for NVIDIA A100 SXM4 (80GB HBM2e)
+╭──────────┬──────────────┬─────────────────┬─────────────────┬────────────────╮
+│ Provider │ Hourly / GPU │ Total Cluster/Hr│ Cost / 1M Tokens│ Monthly (730h) │
+├──────────┼──────────────┼─────────────────┼─────────────────┼────────────────┤
+│ RUNPOD   │        $1.89 │           $1.89 │         $4.9399 │       $1379.70 │
+│ LAMBDA   │        $1.49 │           $1.49 │         $3.8944 │       $1087.70 │
+│ AWS      │        $5.12 │           $5.12 │        $13.3821 │       $3737.60 │
+│ GCP      │        $3.67 │           $3.67 │         $9.5922 │       $2679.10 │
+╰──────────┴──────────────┴─────────────────┴─────────────────┴────────────────╯
+```
+
+---
+
+### 2. Multi-GPU Comparison Matrix
 
 Find the optimal accelerator for a workload and eliminate over-provisioning:
 
@@ -80,46 +136,33 @@ Output:
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
-### 2. Predict Detailed VRAM Footprint & Headroom
+---
+
+### 3. Predict Detailed VRAM Footprint & Headroom
 
 ```bash
 infersize vram --model qwen2.5-7b --gpu rtx3050 --quant int4 --context 4096
 ```
 
-Output:
-```text
-╭────────────────── ⚡ INFERSIZE: VRAM CAPACITY ANALYSIS ──────────────────────╮
-│ Model: qwen2.5-7b (7.62B params) | GPU: NVIDIA GeForce RTX 3050 Laptop (6GB) │
-│ Precision: Weights: INT4 | KV-Cache: FP16 | Batch: 1 | Context: 4096 tokens  │
-│ Verdict: ✔ WORKLOAD FITS IN VRAM (78.3% utilized)                            │
-╰──────────────────────────────────────────────────────────────────────────────╯
- Component      Memory (GB)  Share (%)  Key Physical Insight
-────────────────────────────────────────────────────────────────────────────────
- Model Weights      3.81 GB      63.5%  Compressed 4.0x from FP16 baseline
- KV Cache           0.23 GB       3.8%  57,344 bytes/token (B=1, S=4096)
- Activations        0.06 GB       1.0%  FlashAttention linear peak memory buffer
- CUDA Context       0.60 GB      10.0%  Driver runtime reservation & workspace
-────────────────────────────────────────────────────────────────────────────────
- TOTAL REQUIRED     4.70 GB      78.3%  Total physical VRAM demand
- HEADROOM          +1.30 GB      21.7%  VRAM remaining for additional batch
+---
 
-Memory Allocation: [█████████████████████████▉▌░░░░░░░░]
-Legend: ■ Weights  ■ KV-Cache  ■ Activations  ■ Driver  ░ Free
-```
-
-### 3. Solve for Maximum Concurrent Serving Batch Size
+### 4. Solve for Maximum Concurrent Serving Batch Size
 
 ```bash
 infersize max-batch --model qwen2.5-7b --gpu rtx3050 --quant int4 --context 2048
 ```
 
-### 4. Solve for Maximum Context Window
+---
+
+### 5. Solve for Maximum Context Window
 
 ```bash
 infersize max-context --model qwen2.5-7b --gpu rtx3050 --quant int4 --batch-size 1
 ```
 
-### 5. Inspect Built-in Hardware & Models
+---
+
+### 6. Inspect Built-in Hardware & Models
 
 ```bash
 infersize models
@@ -139,6 +182,12 @@ $$\text{KV Bytes per Token} = 2 \times L \times H_{\text{kv}} \times D \times B$
 
 ### 2. Maximum Concurrent Batch Size Solver
 $$B_{\max} = \left\lfloor \frac{\text{VRAM}_{\text{usable}} - \text{Memory}_{\text{weights}} - \text{Memory}_{\text{act}}}{\text{KV Bytes per Token} \times S} \right\rfloor$$
+
+### 3. Memory-Bandwidth Bound Decode Throughput
+$$\text{Aggregate Throughput (tokens/sec)} = \frac{B \times \text{Memory Bandwidth (GB/s)} \times 10^9 \times \eta}{W_{\text{bytes}} + \text{KV}_{\text{bytes}}}$$
+
+### 4. Unit Cost per 1 Million Tokens ($/1M tokens)
+$$\text{Cost per 1M Tokens} = \frac{\text{Hourly Rental Rate}}{\text{Tokens per Hour}} \times 1,000,000$$
 
 ---
 

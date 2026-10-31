@@ -144,12 +144,12 @@ except Exception as e:
 if mode == "⚡ Multi-GPU VRAM & Capacity":
     st.title("⚡ Multi-GPU VRAM Footprint & Capacity Matrix")
     st.markdown(
-        f"Evaluating **{arch.name}** ({arch.total_parameters / 1e9:.2f}B parameters) with **{quant_choice.upper()}** weights at **batch {batch_sz}** and **{context_len:,} context tokens**."
+        f"Evaluating **{arch.name}** ({arch.calculate_total_parameters() / 1e9:.2f}B parameters) with **{quant_choice.upper()}** weights at **batch {batch_sz}** and **{context_len:,} context tokens**."
     )
 
     # Multi-GPU Table
-    matrix_df = compare_gpus_for_workload(
-        arch=arch,
+    comparison_report = compare_gpus_for_workload(
+        model=arch,
         precision=quant_choice,
         kv_cache_dtype=kv_choice,
         batch_size=batch_sz,
@@ -160,7 +160,7 @@ if mode == "⚡ Multi-GPU VRAM & Capacity":
     # Summary metrics for default primary GPU (e.g. RTX 4090 or A100)
     primary_gpu = get_gpu_profile("rtx4090")
     vram_calc = estimate_vram_usage(
-        arch=arch,
+        model=arch,
         gpu=primary_gpu,
         precision=quant_choice,
         kv_cache_dtype=kv_choice,
@@ -171,7 +171,7 @@ if mode == "⚡ Multi-GPU VRAM & Capacity":
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Total Required VRAM", f"{vram_calc.total_vram_required_gb:.2f} GB")
+        st.metric("Total Required VRAM", f"{vram_calc.total_required_vram_gb:.2f} GB")
     with col2:
         st.metric("Model Weights", f"{vram_calc.weight_memory_gb:.2f} GB")
     with col3:
@@ -183,19 +183,19 @@ if mode == "⚡ Multi-GPU VRAM & Capacity":
 
     # Format table for display
     display_rows = []
-    for r in matrix_df:
-        status_symbol = "✔ FITS" if r["fits"] else "✘ OOM"
+    for r in comparison_report.items:
+        status_symbol = "✔ FITS" if r.fits else "✘ OOM"
         display_rows.append(
             {
-                "GPU Accelerator": r["gpu_name"],
-                "Total VRAM": f"{r['vram_gb']:.1f} GB",
-                "Workload Required": f"{r['required_gb']:.2f} GB",
-                "Headroom": f"{r['headroom_gb']:+.2f} GB",
-                "VRAM Util": f"{r['utilization_pct']:.1f}%",
-                "Max Concurrent Batch": f"{r['max_batch']} reqs",
-                "Memory Bandwidth": f"{r['bandwidth_gb_s']:.0f} GB/s",
+                "GPU Accelerator": r.gpu_name,
+                "Total VRAM": f"{r.vram_total_gb:.1f} GB",
+                "Workload Required": f"{r.required_vram_gb:.2f} GB",
+                "Headroom": f"{r.headroom_gb:+.2f} GB",
+                "VRAM Util": f"{r.utilization_pct:.1f}%",
+                "Max Concurrent Batch": f"{r.max_concurrent_batch} reqs",
+                "Memory Bandwidth": f"{r.memory_bandwidth_gb_s:.0f} GB/s",
                 "Status": status_symbol,
-                "Verdict": r["verdict"],
+                "Verdict": r.status,
             }
         )
     st.dataframe(display_rows, use_container_width=True)
@@ -299,7 +299,7 @@ elif mode == "💰 Cloud TCO & $/1M Tokens":
     gpu_prof = get_gpu_profile(gpu_id)
 
     cost_res = estimate_serving_cost(
-        arch=arch,
+        model=arch,
         gpu=gpu_prof,
         precision=quant_choice,
         kv_cache_dtype=kv_choice,
@@ -319,16 +319,28 @@ elif mode == "💰 Cloud TCO & $/1M Tokens":
         st.metric("Monthly 24/7 Hosting", f"${cost_res.monthly_hosting_cost_usd:,.2f}")
 
     st.markdown("### ☁️ Cross-Cloud Comparison Matrix")
-    cloud_table = compare_cloud_costs_for_workload(
-        arch=arch,
-        gpu=gpu_prof,
+    cloud_report = compare_cloud_costs_for_workload(
+        model=arch,
         precision=quant_choice,
         kv_cache_dtype=kv_choice,
         batch_size=batch_sz,
         context_tokens=context_len,
         tensor_parallel=tp_degree,
     )
-    st.dataframe(cloud_table, use_container_width=True)
+    cloud_rows = []
+    for c in cloud_report.results:
+        cloud_rows.append(
+            {
+                "GPU Accelerator": c.gpu_name,
+                "Hourly Rate ($/hr)": f"${c.hourly_rate_usd:.2f}",
+                "Cluster Hourly ($/hr)": f"${c.total_cluster_hourly_usd:.2f}",
+                "TPOT Latency": f"{c.time_per_output_token_ms:.1f} ms",
+                "Throughput / Stream": f"{c.tokens_per_sec_per_user:.1f} tok/s",
+                "$/1M Tokens": f"${c.cost_per_million_tokens_usd:.4f}",
+                "Monthly 24/7 Hosting": f"${c.monthly_hosting_cost_usd:,.2f}",
+            }
+        )
+    st.dataframe(cloud_rows, use_container_width=True)
 
 
 elif mode == "🖥️ Live Local Hardware Check":

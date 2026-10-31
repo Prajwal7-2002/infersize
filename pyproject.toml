@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "infersize"
-version = "0.3.0"
+version = "0.3.1"
 description = "Analytical performance modeling, VRAM capacity planning, and hardware roofline prediction for LLM serving."
 readme = "README.md"
 license = "Apache-2.0"

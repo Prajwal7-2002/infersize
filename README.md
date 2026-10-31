@@ -4,7 +4,7 @@
 
 # infersize ⚡
 
-> **Analytical Performance Modeling, Cloud Cost ($/1M tokens) & VRAM Capacity Planner for LLM Serving.**  
+> **Analytical Performance Modeling, Cloud Cost (\$/1M tokens) & VRAM Capacity Planner for LLM Serving.**  
 > Predict exact memory footprints, decode throughput, KV-cache scaling, multi-GPU comparison matrices, and cloud serving costs before downloading a model or spending thousands on GPU clusters.
 
 [![CI](https://github.com/Prajwal7-2002/infersize/actions/workflows/ci.yml/badge.svg)](https://github.com/Prajwal7-2002/infersize/actions)
@@ -20,7 +20,7 @@
 Every engineer deploying local or cloud LLMs asks the same questions:
 * *"Can I run Qwen-2.5-7B on my 6GB RTX 3050 laptop?"*
 * *"Which GPU should I rent on RunPod, Lambda, or AWS for the lowest cost without running out of memory?"*
-* *"What is my actual operational cost per 1 Million generated tokens ($/1M tokens) at batch size 16?"*
+* *"What is my actual operational cost per 1 Million generated tokens (\$/1M tokens) at batch size 16?"*
 * *"How many concurrent users can an 80GB A100 serve at 4,000 context length before crashing with Out-Of-Memory (OOM)?"*
 
 Renting GPU clusters just to discover a model runs out of memory or costs 10x more than closed APIs burns engineering time and cloud budgets.  
@@ -60,11 +60,17 @@ Renting GPU clusters just to discover a model runs out of memory or costs 10x mo
 ## 📦 Quickstart
 
 ```bash
-# Install via pip / uv
+# Standard CLI installation (Zero external C++/CUDA dependencies)
 pip install infersize
+
+# Or with uv package manager
+uv add infersize
+
+# Optional: With interactive Streamlit Web Studio
+pip install "infersize[ui]"
 ```
 
-### 1. Cloud Cost & Throughput Sizing ($/1M Tokens)
+### 1. Cloud Cost & Throughput Sizing (\$/1M Tokens)
 
 Predict generation throughput, TPOT latency, and cost per million tokens:
 
@@ -149,7 +155,41 @@ Output:
 
 ---
 
-### 3. Predict Detailed VRAM Footprint & Headroom
+### 3. Speculative Decoding Sizer (`infersize spec`)
+
+Analytically models joint VRAM demand and memory-bandwidth acceleration under Leviathan speculative verification:
+
+```bash
+# Sizing Qwen2.5-32B target paired with Qwen2.5-0.5B draft on an A100-80GB
+infersize spec --target qwen2.5-32b --draft qwen2.5-0.5b --gpu a100-80gb --target-quant int4 --lookahead 4 --acceptance 0.75
+```
+
+---
+
+### 4. Live Silicon Hardware Zero-OOM Verifier (`infersize fit`)
+
+Auto-detects physical GPU/CPU accelerators and verifies whether a model workload fits without crashing:
+
+```bash
+# Auto-detect local GPU and check zero-OOM headroom
+infersize fit --model qwen2.5-7b --quant int4 --context 4096
+```
+
+---
+
+### 5. Interactive Web Sizer Studio (`infersize ui`)
+
+Launch the visual browser dashboard with live sliders, multi-GPU comparison matrices, and RFC export:
+
+```bash
+# Install optional UI dependencies and launch local web studio
+pip install "infersize[ui]"
+infersize ui
+```
+
+---
+
+### 6. Predict Detailed VRAM Footprint & Headroom
 
 ```bash
 infersize vram --model qwen2.5-7b --gpu rtx3050 --quant int4 --context 4096
@@ -157,7 +197,7 @@ infersize vram --model qwen2.5-7b --gpu rtx3050 --quant int4 --context 4096
 
 ---
 
-### 4. Solve for Maximum Concurrent Serving Batch Size
+### 7. Solve for Maximum Concurrent Serving Batch Size
 
 ```bash
 infersize max-batch --model qwen2.5-7b --gpu rtx3050 --quant int4 --context 2048
@@ -165,7 +205,7 @@ infersize max-batch --model qwen2.5-7b --gpu rtx3050 --quant int4 --context 2048
 
 ---
 
-### 5. Solve for Maximum Context Window
+### 8. Solve for Maximum Context Window
 
 ```bash
 infersize max-context --model qwen2.5-7b --gpu rtx3050 --quant int4 --batch-size 1
@@ -173,7 +213,7 @@ infersize max-context --model qwen2.5-7b --gpu rtx3050 --quant int4 --batch-size
 
 ---
 
-### 6. Export Architecture RFC & Capacity Sizing Report
+### 9. Export Architecture RFC & Capacity Sizing Report
 
 Generate an engineering RFC report for deployment documentation, GitHub PRs, or infrastructure tickets:
 
@@ -219,7 +259,7 @@ $$B_{\max} = \left\lfloor \frac{\text{VRAM}_{\text{usable}} - \text{Memory}_{\te
 ### 3. Memory-Bandwidth Bound Decode Throughput
 $$\text{Aggregate Throughput (tokens/sec)} = \frac{B \times \text{Memory Bandwidth (GB/s)} \times 10^9 \times \eta}{W_{\text{bytes}} + \text{KV}_{\text{bytes}}}$$
 
-### 4. Unit Cost per 1 Million Tokens ($/1M tokens)
+### 4. Unit Cost per 1 Million Tokens (\$/1M tokens)
 $$\text{Cost per 1M Tokens} = \frac{\text{Hourly Rental Rate}}{\text{Tokens per Hour}} \times 1,000,000$$
 
 ---

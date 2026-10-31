@@ -52,7 +52,7 @@
   - Panel header with workload summary, cluster cost, and fitting status.
   - Full metrics breakdown table with physical and financial engineering insights.
   - `--compare-clouds`: Side-by-side price comparison across all supported cloud providers for a single GPU.
-  - `--compare-all`: Multi-accelerator cost, throughput, and $/1M tokens comparison matrix.
+  - `--compare-all`: Multi-accelerator cost, throughput, and \\\$/1M tokens comparison matrix.
   - `--rate`: Custom hourly rental rate override per GPU.
 - Added 9 unit tests in `tests/test_cost.py` verifying throughput, TP cluster cost, and cloud price lookups.
 

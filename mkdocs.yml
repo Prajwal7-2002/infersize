@@ -1,0 +1,51 @@
+site_name: infersize
+site_description: Analytical performance modeling, VRAM capacity planning, and hardware roofline prediction for LLM serving.
+site_author: Prajwal Pujari
+site_url: https://prajwal7-2002.github.io/infersize/
+repo_url: https://github.com/Prajwal7-2002/infersize
+repo_name: Prajwal7-2002/infersize
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - content.code.copy
+    - content.code.annotate
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+  - tables
+  - admonition
+
+extra_javascript:
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Overview: index.md
+  - VRAM Analytical Physics: vram-physics.md
+  - Speculative Sizer: speculative-sizer.md
+  - Hardware Zero-OOM Verifier: hardware-fit.md
+  - Web Studio & Streamlit: web-studio.md
+  - CLI Reference: cli-reference.md

@@ -17,9 +17,8 @@ except ImportError:
 from infersize import __version__
 from infersize.analytics.comparison import compare_gpus_for_workload
 from infersize.analytics.cost import compare_cloud_costs_for_workload, estimate_serving_cost
-from infersize.analytics.report import generate_architecture_report
 from infersize.analytics.speculative import estimate_speculative_decoding
-from infersize.analytics.vram import estimate_vram_usage, find_max_concurrent_batch_size
+from infersize.analytics.vram import estimate_vram_usage
 from infersize.hardware.detect import detect_local_hardware, verify_local_fit
 from infersize.hardware.specs import GPU_PRESETS, get_gpu_profile
 from infersize.models.loader import resolve_model_arch
@@ -270,7 +269,7 @@ elif mode == "🚀 Speculative Decoding Sizer":
 
 elif mode == "💰 Cloud TCO & $/1M Tokens":
     st.title("💰 Cloud TCO & Unit Economics Sizer ($/1M Tokens)")
-    st.markdown(f"Calculate memory-bandwidth decode throughput, TPOT latency, and $/1M tokens across RunPod, Lambda, AWS, and GCP.")
+    st.markdown("Calculate memory-bandwidth decode throughput, TPOT latency, and $/1M tokens across RunPod, Lambda, AWS, and GCP.")
 
     gpu_id = st.selectbox("Select Cloud Accelerator:", list(GPU_PRESETS.keys()), index=list(GPU_PRESETS.keys()).index("rtx4090"))
     gpu_prof = get_gpu_profile(gpu_id)

@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
 from infersize.analytics.vram import (
-    BYTES_PER_KV_ELEM,
     BYTES_PER_PARAM,
     calculate_kv_cache_bytes_per_token,
     estimate_vram_usage,
 )
-from infersize.hardware.specs import GPU_PRESETS, GPUProfile
+from infersize.hardware.specs import GPUProfile
 from infersize.models.specs import ModelArch
 
 

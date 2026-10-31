@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import typer
 from rich import box
@@ -32,12 +33,12 @@ from infersize.analytics.cost import (
 )
 from infersize.analytics.report import generate_architecture_report
 from infersize.analytics.speculative import estimate_speculative_decoding
-from infersize.hardware.detect import detect_local_hardware, verify_local_fit
 from infersize.analytics.vram import (
     estimate_vram_usage,
     find_max_concurrent_batch_size,
     find_max_context_length,
 )
+from infersize.hardware.detect import detect_local_hardware, verify_local_fit
 from infersize.hardware.pricing import CLOUD_GPU_PRICING
 from infersize.hardware.specs import GPU_PRESETS, get_gpu_profile
 from infersize.models.loader import resolve_model_arch
@@ -905,7 +906,7 @@ def spec(
     table.add_row(
         "Total Joint VRAM",
         f"{res.total_vram_gb:.2f} GB",
-        f"Target + Draft + CUDA context held concurrently in VRAM",
+        "Target + Draft + CUDA context held concurrently in VRAM",
     )
     table.add_row(
         "GPU Total VRAM",
@@ -922,7 +923,7 @@ def spec(
     table.add_row(
         "Draft Step Latency",
         f"{res.draft_step_latency_ms:.1f} ms",
-        f"Time to generate 1 draft token at memory bandwidth limits",
+        "Time to generate 1 draft token at memory bandwidth limits",
     )
     table.add_row(
         "Target Verify Pass",
@@ -942,17 +943,17 @@ def spec(
     table.add_row(
         "Effective Speculative TPOT",
         f"{res.effective_tpot_ms:.1f} ms",
-        f"Net latency per emitted token across speculative cycles",
+        "Net latency per emitted token across speculative cycles",
     )
     table.add_row(
         "Effective Generation Rate",
         f"{res.effective_tokens_per_sec:.1f} tok/s",
-        f"Effective throughput per concurrent user stream",
+        "Effective throughput per concurrent user stream",
     )
     table.add_row(
         "NET SPECULATIVE SPEEDUP",
         f"[bold yellow]{res.speedup_ratio:.2f}x[/]",
-        f"Net acceleration over standard autoregressive decoding",
+        "Net acceleration over standard autoregressive decoding",
     )
 
     console.print(table)
@@ -1015,7 +1016,6 @@ def ui(
     browser: bool = typer.Option(True, "--browser/--no-browser", help="Open browser automatically"),
 ):
     """Launch the interactive Streamlit LLM Capacity Planner web studio."""
-    import shutil
     import subprocess
 
     app_path = Path(__file__).resolve().parent / "ui" / "app.py"

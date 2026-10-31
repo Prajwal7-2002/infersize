@@ -322,7 +322,7 @@ def main():
         with m3:
             st.metric("Throughput / Stream", f"{cost_res.tokens_per_sec_per_user:.1f} tok/s")
         with m4:
-            st.metric("Monthly 24/7 Hosting", f"${cost_res.monthly_hosting_cost_usd:,.2f}")
+            st.metric("Monthly 24/7 Hosting", f"${cost_res.monthly_dedicated_cost_usd:,.2f}")
 
         st.markdown("### ☁️ Cross-Cloud Comparison Matrix")
         cloud_report = compare_cloud_costs_for_workload(
@@ -343,7 +343,7 @@ def main():
                     "TPOT Latency": f"{c.time_per_output_token_ms:.1f} ms",
                     "Throughput / Stream": f"{c.tokens_per_sec_per_user:.1f} tok/s",
                     "$/1M Tokens": f"${c.cost_per_million_tokens_usd:.4f}",
-                    "Monthly 24/7 Hosting": f"${c.monthly_hosting_cost_usd:,.2f}",
+                    "Monthly 24/7 Hosting": f"${c.monthly_dedicated_cost_usd:,.2f}",
                 }
             )
         st.dataframe(cloud_rows, use_container_width=True)

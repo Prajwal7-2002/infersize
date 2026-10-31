@@ -64,6 +64,7 @@ def test_ui_backend_pipeline_execution():
         tensor_parallel=1,
     )
     assert cost.cost_per_million_tokens_usd > 0
+    assert cost.monthly_dedicated_cost_usd > 0
 
     cloud_comp = compare_cloud_costs_for_workload(
         model=arch,
@@ -74,6 +75,7 @@ def test_ui_backend_pipeline_execution():
         tensor_parallel=1,
     )
     assert len(cloud_comp.results) > 0
+    assert cloud_comp.results[0].monthly_dedicated_cost_usd > 0
 
     # Mode 4: Local fit
     hw = detect_local_hardware()

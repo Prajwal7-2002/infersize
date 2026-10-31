@@ -253,12 +253,13 @@ def verify_local_fit(
     else:
         target_gpu = GPUProfile(
             name=hw.device_name,
+            display_name=hw.device_name,
             vram_gb=hw.total_memory_gb,
             memory_bandwidth_gb_s=150.0,  # Generic baseline
-            memory_bus_width_bits=128,
-            boost_clock_mhz=1500,
             fp16_tflops=20.0,
-            architecture="Detected Silicon",
+            int8_tflops=40.0,
+            int4_tflops=80.0,
+            cuda_overhead_gb=0.8,
         )
 
     vram_result = estimate_vram_usage(

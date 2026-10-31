@@ -40,6 +40,12 @@ Renting GPU clusters just to discover a model runs out of memory or costs 10x mo
 * **Capacity Solvers**:
   * `max-batch`: Solves for the maximum concurrent users a GPU can host before VRAM exhaustion.
   * `max-context`: Solves for the maximum supported sequence length before OOM.
+* **Dynamic Hugging Face & Custom Config Ingestion**:
+  * Fetch and parse any open-weights model directly from Hugging Face Hub (e.g. `--model meta-llama/Llama-3.1-8B-Instruct`).
+  * Pure standard-library HTTP resolver — **zero heavy dependencies** (no PyTorch, Transformers, or Hugging Face Hub SDK required).
+  * Load local architecture files directly with `--config ./path/to/config.json`.
+* **Mixture-of-Experts (MoE) Physics**:
+  * Differentiates **Total Parameters** (static VRAM demand holding all $E$ experts) from **Active Parameters** (DRAM memory bus transfers for top-$K$ routed experts per decode step).
 * **Architecture RFC & Sizing Report Generator (`infersize report`)**: Generates and exports publication-ready Markdown or JSON capacity specifications with executive summaries, physical memory breakdowns, multi-GPU comparison matrices, and cloud TCO economics.
 * **Machine-Readable Automation (`--json`)**: Emits structured JSON schemas for CI/CD gates and infrastructure automation.
 * **Hardware Profiles Built-in**: NVIDIA RTX 3050, 4060, 4090, Tesla T4, L4, A100 (40GB/80GB), H100 (80GB), H200 (141GB), and Apple Silicon M3 Max (36GB/128GB).

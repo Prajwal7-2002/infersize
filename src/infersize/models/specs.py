@@ -80,6 +80,33 @@ class ModelArch(BaseModel):
 
         return embed_params + lm_head_params + total_backbone_params + norm_params
 
+    def calculate_active_parameters(self) -> int:
+        """Analytically compute active parameters evaluated per token (top-K experts for MoE)."""
+        if not self.is_moe or self.num_experts <= 1:
+            return self.calculate_total_parameters()
+
+        # In MoE models, static VRAM holds all E experts, but each decode token step
+        # only routes activations through top-K active experts.
+        embed_params = self.vocab_size * self.hidden_size
+        lm_head_params = 0 if self.tie_word_embeddings else (self.vocab_size * self.hidden_size)
+
+        q_params = self.hidden_size * (self.num_attention_heads * self.head_dim)
+        k_params = self.hidden_size * (self.num_key_value_heads * self.head_dim)
+        v_params = self.hidden_size * (self.num_key_value_heads * self.head_dim)
+        o_params = (self.num_attention_heads * self.head_dim) * self.hidden_size
+        attn_params = q_params + k_params + v_params + o_params
+
+        ffn_matrix_factor = 3 if self.mlp_type.lower() == "swiglu" else 2
+        dense_ffn_params = ffn_matrix_factor * self.hidden_size * self.intermediate_size
+        active_ffn_params = self.num_experts_per_tok * dense_ffn_params
+
+        norm_params = (2 * self.hidden_size) * self.num_layers + self.hidden_size
+
+        per_layer_active = attn_params + active_ffn_params
+        total_active_backbone = per_layer_active * self.num_layers
+
+        return embed_params + lm_head_params + total_active_backbone + norm_params
+
 
 # Standard Open-Weights Presets
 MODEL_PRESETS: dict[str, ModelArch] = {

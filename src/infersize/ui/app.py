@@ -21,7 +21,7 @@ from infersize.analytics.comparison import compare_gpus_for_workload
 from infersize.analytics.cost import compare_cloud_costs_for_workload, estimate_serving_cost
 from infersize.analytics.speculative import estimate_speculative_decoding
 from infersize.analytics.vram import estimate_vram_usage
-from infersize.hardware.detect import detect_local_hardware, verify_local_fit
+from infersize.hardware.detect import DetectedHardware, detect_local_hardware, verify_local_fit
 from infersize.hardware.specs import GPU_PRESETS, get_gpu_profile
 from infersize.models.loader import resolve_model_arch
 from infersize.models.specs import MODEL_PRESETS
@@ -349,12 +349,122 @@ def main():
         st.dataframe(cloud_rows, use_container_width=True)
 
     elif mode == "🖥️ Live Local Hardware Check":
-        st.title("🖥️ Live Local Hardware Zero-OOM Verification")
+        st.title("🖥️ Local Hardware Zero-OOM Verification")
         st.markdown(
-            "Queries local physical accelerators or host memory to verify whether this model fits without crashing."
+            "Verify whether this model configuration will fit into physical VRAM without crashing with an Out-Of-Memory (OOM) error."
         )
 
-        hw = detect_local_hardware()
+        st.info(
+            "💡 **Hosted Web Demo Note:** Web browsers run sandboxed and cannot access client hardware or GPU drivers. "
+            "Below, you can either **simulate your local GPU** (RTX 4090, 3060, Mac Unified Memory, etc.) or inspect the live cloud server process."
+        )
+
+        source_tab = st.radio(
+            "Target Device Source:",
+            [
+                "🎮 Simulate My Physical Rig / GPU Preset",
+                "🖥️ Live Host Auto-Detection (Server Process / CLI)",
+            ],
+            horizontal=True,
+        )
+
+        if source_tab == "🎮 Simulate My Physical Rig / GPU Preset":
+            sim_col1, sim_col2 = st.columns([2, 1])
+            with sim_col1:
+                preset_options = [
+                    "NVIDIA GeForce RTX 4090 (24 GB VRAM)",
+                    "NVIDIA GeForce RTX 4080 (16 GB VRAM)",
+                    "NVIDIA GeForce RTX 3060 (12 GB VRAM)",
+                    "NVIDIA GeForce RTX 4060 (8 GB VRAM)",
+                    "NVIDIA GeForce RTX 3050 Laptop (6 GB VRAM)",
+                    "Apple M3 Max Unified Memory (36 GB)",
+                    "Apple M3 Max Unified Memory (128 GB)",
+                    "Custom Hardware VRAM Budget",
+                ]
+                selected_device = st.selectbox(
+                    "Choose Your GPU / Silicon Model:", preset_options, index=0
+                )
+
+            if "RTX 4090" in selected_device:
+                hw = DetectedHardware(
+                    device_type="cuda",
+                    device_name="NVIDIA GeForce RTX 4090 (24GB)",
+                    total_memory_gb=24.0,
+                    free_memory_gb=22.2,
+                    matched_gpu_id="rtx4090",
+                )
+            elif "RTX 4080" in selected_device:
+                hw = DetectedHardware(
+                    device_type="cuda",
+                    device_name="NVIDIA GeForce RTX 4080 (16GB)",
+                    total_memory_gb=16.0,
+                    free_memory_gb=14.8,
+                    matched_gpu_id="rtx4080",
+                )
+            elif "RTX 3060" in selected_device:
+                hw = DetectedHardware(
+                    device_type="cuda",
+                    device_name="NVIDIA GeForce RTX 3060 (12GB)",
+                    total_memory_gb=12.0,
+                    free_memory_gb=11.0,
+                    matched_gpu_id="rtx3060",
+                )
+            elif "RTX 4060" in selected_device:
+                hw = DetectedHardware(
+                    device_type="cuda",
+                    device_name="NVIDIA GeForce RTX 4060 (8GB)",
+                    total_memory_gb=8.0,
+                    free_memory_gb=7.2,
+                    matched_gpu_id="rtx4060",
+                )
+            elif "RTX 3050" in selected_device:
+                hw = DetectedHardware(
+                    device_type="cuda",
+                    device_name="NVIDIA GeForce RTX 3050 Laptop (6GB)",
+                    total_memory_gb=6.0,
+                    free_memory_gb=5.3,
+                    matched_gpu_id="rtx3050",
+                )
+            elif "36 GB" in selected_device:
+                hw = DetectedHardware(
+                    device_type="apple_silicon",
+                    device_name="Apple M3 Max Unified Memory (36GB)",
+                    total_memory_gb=36.0,
+                    free_memory_gb=30.0,
+                    matched_gpu_id="m3-max-36gb",
+                )
+            elif "128 GB" in selected_device:
+                hw = DetectedHardware(
+                    device_type="apple_silicon",
+                    device_name="Apple M3 Max Unified Memory (128GB)",
+                    total_memory_gb=128.0,
+                    free_memory_gb=112.0,
+                    matched_gpu_id="m3-max-128gb",
+                )
+            else:
+                with sim_col2:
+                    custom_vram = st.number_input(
+                        "Custom VRAM (GB):",
+                        min_value=1.0,
+                        max_value=256.0,
+                        value=16.0,
+                        step=1.0,
+                    )
+                hw = DetectedHardware(
+                    device_type="cuda",
+                    device_name=f"Custom Device ({custom_vram:.0f} GB)",
+                    total_memory_gb=float(custom_vram),
+                    free_memory_gb=round(float(custom_vram) * 0.9, 1),
+                    matched_gpu_id=None,
+                )
+        else:
+            hw = detect_local_hardware()
+            if hw.device_type == "cpu":
+                st.warning(
+                    f"⚠️ **Server Host CPU Detected ({hw.device_name})**: The active Python process has no CUDA or Metal accelerator attached. "
+                    "When accessed via Streamlit Cloud, this represents the hosting container's system RAM, not your personal computer."
+                )
+
         fit = verify_local_fit(
             arch=arch,
             precision=quant_choice,
@@ -364,8 +474,10 @@ def main():
             hardware=hw,
         )
 
-        st.info(
-            f"**Detected Hardware:** {hw.device_name} ({hw.total_memory_gb:.1f} GB Total, {hw.free_memory_gb:.1f} GB Currently Free)"
+        st.markdown(
+            f"**Target Hardware:** `{hw.device_name}` &nbsp;|&nbsp; "
+            f"**Total Capacity:** `{hw.total_memory_gb:.1f} GB` &nbsp;|&nbsp; "
+            f"**Estimated Free:** `{hw.free_memory_gb:.1f} GB`"
         )
 
         h1, h2, h3 = st.columns(3)
@@ -382,6 +494,24 @@ def main():
             st.warning(f"### {fit.verdict}")
         else:
             st.error(f"### {fit.verdict}")
+
+        st.divider()
+        st.markdown(
+            """
+            ### 💻 Run Zero-Config Detection on Your Real Machine
+            To let `infersize` directly probe your local NVIDIA drivers or Apple Silicon with zero manual input:
+            ```bash
+            # 1. Install infersize via pip
+            pip install infersize
+
+            # 2. Check your physical GPU and live free VRAM directly
+            infersize check
+
+            # 3. Or launch this exact Studio running locally on your hardware
+            infersize ui
+            ```
+            """
+        )
 
 
 if __name__ == "__main__":

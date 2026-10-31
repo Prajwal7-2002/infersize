@@ -212,6 +212,8 @@ def _match_gpu_preset(name: str, total_gb: float) -> Optional[str]:
     # Match based on common names
     if "3050" in clean_name:
         return "rtx3050"
+    if "3060" in clean_name:
+        return "rtx3060"
     if "4090" in clean_name:
         return "rtx4090"
     if "4080" in clean_name:

@@ -49,6 +49,16 @@ GPU_PRESETS: dict[str, GPUProfile] = {
         int4_tflops=288.0,
         cuda_overhead_gb=0.6,
     ),
+    "rtx3060": GPUProfile(
+        name="rtx3060",
+        display_name="NVIDIA GeForce RTX 3060 (12GB)",
+        vram_gb=12.0,
+        memory_bandwidth_gb_s=360.0,
+        fp16_tflops=52.0,
+        int8_tflops=104.0,
+        int4_tflops=208.0,
+        cuda_overhead_gb=0.7,
+    ),
     "rtx4060": GPUProfile(
         name="rtx4060",
         display_name="NVIDIA GeForce RTX 4060 (8GB)",
@@ -58,6 +68,16 @@ GPU_PRESETS: dict[str, GPUProfile] = {
         int8_tflops=240.0,
         int4_tflops=480.0,
         cuda_overhead_gb=0.7,
+    ),
+    "rtx4080": GPUProfile(
+        name="rtx4080",
+        display_name="NVIDIA GeForce RTX 4080 (16GB)",
+        vram_gb=16.0,
+        memory_bandwidth_gb_s=716.8,
+        fp16_tflops=195.0,
+        int8_tflops=390.0,
+        int4_tflops=780.0,
+        cuda_overhead_gb=0.8,
     ),
     "rtx4090": GPUProfile(
         name="rtx4090",

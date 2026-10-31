@@ -1,5 +1,7 @@
 # Web Studio & Streamlit App (`infersize ui`)
 
+> 🚀 **Live Cloud Instance**: You can test the Web Studio directly in your browser without local installation at **[infersize-sqv5udvwf5vfqwc7xvpx8t.streamlit.app](https://infersize-sqv5udvwf5vfqwc7xvpx8t.streamlit.app/)**.
+
 For interactive capacity planning, architecture design meetings, and visual RFC reviews, `infersize` includes a standalone **Streamlit Web Studio**.
 
 ---

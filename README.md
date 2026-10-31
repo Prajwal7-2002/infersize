@@ -9,6 +9,8 @@
 
 [![CI](https://github.com/Prajwal7-2002/infersize/actions/workflows/ci.yml/badge.svg)](https://github.com/Prajwal7-2002/infersize/actions)
 [![PyPI version](https://img.shields.io/pypi/v/infersize.svg?color=blue)](https://pypi.org/project/infersize/)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://infersize-sqv5udvwf5vfqwc7xvpx8t.streamlit.app/)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://prajwal7-2002.github.io/infersize/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Zero GPU Required](https://img.shields.io/badge/Compute-Zero%20GPU%20Required-success.svg)](https://github.com/Prajwal7-2002/infersize)
@@ -69,6 +71,9 @@ uv add infersize
 # Optional: With interactive Streamlit Web Studio
 pip install "infersize[ui]"
 ```
+
+> 🌐 **Live Web Studio**: Run the interactive calculator in your browser at **[infersize-sqv5udvwf5vfqwc7xvpx8t.streamlit.app](https://infersize-sqv5udvwf5vfqwc7xvpx8t.streamlit.app/)** or launch locally via `infersize ui`.
+
 
 ### 1. Cloud Cost & Throughput Sizing (\$/1M Tokens)
 
@@ -235,7 +240,39 @@ Output:
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
-### 7. Inspect Built-in Hardware & Models
+### 10. Speculative Decoding Sizer (Leviathan Physics)
+
+Model joint VRAM footprint, memory bandwidth latency, and Leviathan speedup for draft + target models:
+
+```bash
+infersize spec --target llama3-70b --draft llama3-8b --gpu a100-80gb --acceptance 0.75 --lookahead 4
+```
+
+---
+
+### 11. Live Local Hardware Zero-OOM Verification
+
+Query physical NVML accelerator or host memory to analytically verify zero-OOM safety before launching workloads:
+
+```bash
+infersize fit --model qwen2.5-7b --quant int4 --batch-size 4 --context 4096
+```
+
+---
+
+### 12. Interactive Streamlit Web Studio
+
+Launch the full-featured browser studio locally:
+
+```bash
+infersize ui --port 8501
+```
+
+Or open the hosted cloud instance at **[infersize-sqv5udvwf5vfqwc7xvpx8t.streamlit.app](https://infersize-sqv5udvwf5vfqwc7xvpx8t.streamlit.app/)**.
+
+---
+
+### 13. Inspect Built-in Hardware & Models
 
 ```bash
 infersize models

@@ -837,19 +837,28 @@ def version():
     console.print(f"[bold cyan]infersize[/] version [bold green]{__version__}[/]")
 
 
-
 @app.command()
 def spec(
-    target: str = typer.Option("qwen2.5-32b", "--target", "-t", help="Target model preset name or HF repo ID"),
-    draft: str = typer.Option("qwen2.5-0.5b", "--draft", "-d", help="Draft model preset name or HF repo ID"),
+    target: str = typer.Option(
+        "qwen2.5-32b", "--target", "-t", help="Target model preset name or HF repo ID"
+    ),
+    draft: str = typer.Option(
+        "qwen2.5-0.5b", "--draft", "-d", help="Draft model preset name or HF repo ID"
+    ),
     gpu: str = typer.Option("a100-80gb", "--gpu", "-g", help="Target GPU hardware profile"),
-    target_quant: str = typer.Option("fp16", "--target-quant", help="Quantization for target model weights"),
-    draft_quant: str = typer.Option("fp16", "--draft-quant", help="Quantization for draft model weights"),
+    target_quant: str = typer.Option(
+        "fp16", "--target-quant", help="Quantization for target model weights"
+    ),
+    draft_quant: str = typer.Option(
+        "fp16", "--draft-quant", help="Quantization for draft model weights"
+    ),
     kv_cache: str = typer.Option("fp16", "--kv-cache", help="KV-cache data type"),
     batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent request streams"),
     context: int = typer.Option(2048, "--context", "-c", help="Sequence length (prompt + output)"),
     lookahead: int = typer.Option(4, "--lookahead", "-k", help="Speculative proposal length K"),
-    acceptance: float = typer.Option(0.70, "--acceptance", "-a", help="Empirical token verification acceptance rate (alpha)"),
+    acceptance: float = typer.Option(
+        0.70, "--acceptance", "-a", help="Empirical token verification acceptance rate (alpha)"
+    ),
     tp: int = typer.Option(1, "--tp", help="Tensor Parallelism degree across GPUs"),
 ):
     """Analytically model Speculative Decoding joint VRAM and Leviathan speedup."""
@@ -917,7 +926,9 @@ def spec(
     table.add_row(
         "VRAM Headroom",
         f"[{headroom_style}]{res.headroom_gb:+.2f} GB[/]",
-        "Safe operational headroom" if res.headroom_gb >= 0 else "VRAM deficit: Will crash with CUDA OOM",
+        "Safe operational headroom"
+        if res.headroom_gb >= 0
+        else "VRAM deficit: Will crash with CUDA OOM",
     )
     table.add_section()
     table.add_row(
@@ -962,7 +973,9 @@ def spec(
 
 @app.command()
 def fit(
-    model: str = typer.Option("qwen2.5-7b", "--model", "-m", help="Model preset name or Hugging Face repository ID"),
+    model: str = typer.Option(
+        "qwen2.5-7b", "--model", "-m", help="Model preset name or Hugging Face repository ID"
+    ),
     quant: str = typer.Option("fp16", "--quant", "-q", help="Weight quantization precision"),
     kv_cache: str = typer.Option("fp16", "--kv-cache", help="KV-cache data type"),
     batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent request streams"),
@@ -981,7 +994,11 @@ def fit(
     )
 
     console.print()
-    verdict_style = "bold green" if fit_res.fits_currently else ("bold yellow" if fit_res.fits_total else "bold red")
+    verdict_style = (
+        "bold green"
+        if fit_res.fits_currently
+        else ("bold yellow" if fit_res.fits_total else "bold red")
+    )
     console.print(
         Panel(
             f"[bold cyan]Detected Silicon:[/] {hw.device_name} ({hw.total_memory_gb:.1f} GB Total, {hw.free_memory_gb:.1f} GB Currently Free)\n"
@@ -999,13 +1016,37 @@ def fit(
     table.add_column("Footprint", justify="right")
     table.add_column("Context")
 
-    table.add_row("Model Weights", f"{fit_res.weights_memory_gb:.2f} GB", f"Static memory for {arch.name} in {quant.upper()}")
-    table.add_row("KV-Cache Buffer", f"{fit_res.kv_cache_memory_gb:.2f} GB", f"Batch {batch_size} x {context:,} tokens in {kv_cache.upper()}")
-    table.add_row("Activation Overhead", f"{fit_res.activations_memory_gb:.2f} GB", "Transient tensor allocations")
+    table.add_row(
+        "Model Weights",
+        f"{fit_res.weights_memory_gb:.2f} GB",
+        f"Static memory for {arch.name} in {quant.upper()}",
+    )
+    table.add_row(
+        "KV-Cache Buffer",
+        f"{fit_res.kv_cache_memory_gb:.2f} GB",
+        f"Batch {batch_size} x {context:,} tokens in {kv_cache.upper()}",
+    )
+    table.add_row(
+        "Activation Overhead",
+        f"{fit_res.activations_memory_gb:.2f} GB",
+        "Transient tensor allocations",
+    )
     table.add_section()
-    table.add_row("Total Required", f"{fit_res.required_memory_gb:.2f} GB", "Minimum physical memory necessary")
-    table.add_row("Total Silicon Memory", f"{hw.total_memory_gb:.1f} GB", f"Physical capacity of {hw.device_name}")
-    table.add_row("Currently Free Memory", f"{hw.free_memory_gb:.1f} GB", "Free memory without closing existing processes")
+    table.add_row(
+        "Total Required",
+        f"{fit_res.required_memory_gb:.2f} GB",
+        "Minimum physical memory necessary",
+    )
+    table.add_row(
+        "Total Silicon Memory",
+        f"{hw.total_memory_gb:.1f} GB",
+        f"Physical capacity of {hw.device_name}",
+    )
+    table.add_row(
+        "Currently Free Memory",
+        f"{hw.free_memory_gb:.1f} GB",
+        "Free memory without closing existing processes",
+    )
     console.print(table)
     console.print()
 

@@ -11,7 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 try:
     import streamlit as st
 except ImportError:
-    print("Streamlit is required to run the infersize web studio. Install with: pip install 'infersize[ui]' or pip install streamlit")
+    print(
+        "Streamlit is required to run the infersize web studio. Install with: pip install 'infersize[ui]' or pip install streamlit"
+    )
     sys.exit(1)
 
 from infersize import __version__
@@ -209,7 +211,9 @@ if mode == "⚡ Multi-GPU VRAM & Capacity":
 
 elif mode == "🚀 Speculative Decoding Sizer":
     st.title("🚀 Speculative Decoding Analytical Capacity Sizer")
-    st.markdown("Model joint VRAM footprint, verification overhead, and effective decode acceleration under Leviathan speculative verification.")
+    st.markdown(
+        "Model joint VRAM footprint, verification overhead, and effective decode acceleration under Leviathan speculative verification."
+    )
 
     draft_choice = st.selectbox(
         "Draft Model Architecture:",
@@ -220,12 +224,18 @@ elif mode == "🚀 Speculative Decoding Sizer":
 
     col_s1, col_s2, col_s3 = st.columns(3)
     with col_s1:
-        spec_gpu_id = st.selectbox("Serving GPU:", list(GPU_PRESETS.keys()), index=list(GPU_PRESETS.keys()).index("a100-80gb"))
+        spec_gpu_id = st.selectbox(
+            "Serving GPU:",
+            list(GPU_PRESETS.keys()),
+            index=list(GPU_PRESETS.keys()).index("a100-80gb"),
+        )
         spec_gpu = get_gpu_profile(spec_gpu_id)
     with col_s2:
         lookahead = st.slider("Lookahead Tokens (K):", min_value=1, max_value=8, value=4)
     with col_s3:
-        acceptance = st.slider("Verification Acceptance Rate (α):", min_value=0.1, max_value=1.0, value=0.75, step=0.05)
+        acceptance = st.slider(
+            "Verification Acceptance Rate (α):", min_value=0.1, max_value=1.0, value=0.75, step=0.05
+        )
 
     spec_res = estimate_speculative_decoding(
         target_arch=arch,
@@ -243,9 +253,17 @@ elif mode == "🚀 Speculative Decoding Sizer":
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.metric("Effective Speedup", f"{spec_res.speedup_ratio:.2f}x", delta=f"{spec_res.speedup_ratio - 1.0:+.2f}x")
+        st.metric(
+            "Effective Speedup",
+            f"{spec_res.speedup_ratio:.2f}x",
+            delta=f"{spec_res.speedup_ratio - 1.0:+.2f}x",
+        )
     with c2:
-        st.metric("Effective Throughput", f"{spec_res.effective_tokens_per_sec:.1f} tok/s", delta=f"{spec_res.effective_tokens_per_sec - spec_res.baseline_tokens_per_sec:+.1f} tok/s")
+        st.metric(
+            "Effective Throughput",
+            f"{spec_res.effective_tokens_per_sec:.1f} tok/s",
+            delta=f"{spec_res.effective_tokens_per_sec - spec_res.baseline_tokens_per_sec:+.1f} tok/s",
+        )
     with c3:
         st.metric("Joint VRAM Required", f"{spec_res.total_vram_gb:.2f} GB")
     with c4:
@@ -269,9 +287,15 @@ elif mode == "🚀 Speculative Decoding Sizer":
 
 elif mode == "💰 Cloud TCO & $/1M Tokens":
     st.title("💰 Cloud TCO & Unit Economics Sizer ($/1M Tokens)")
-    st.markdown("Calculate memory-bandwidth decode throughput, TPOT latency, and $/1M tokens across RunPod, Lambda, AWS, and GCP.")
+    st.markdown(
+        "Calculate memory-bandwidth decode throughput, TPOT latency, and $/1M tokens across RunPod, Lambda, AWS, and GCP."
+    )
 
-    gpu_id = st.selectbox("Select Cloud Accelerator:", list(GPU_PRESETS.keys()), index=list(GPU_PRESETS.keys()).index("rtx4090"))
+    gpu_id = st.selectbox(
+        "Select Cloud Accelerator:",
+        list(GPU_PRESETS.keys()),
+        index=list(GPU_PRESETS.keys()).index("rtx4090"),
+    )
     gpu_prof = get_gpu_profile(gpu_id)
 
     cost_res = estimate_serving_cost(
@@ -309,7 +333,9 @@ elif mode == "💰 Cloud TCO & $/1M Tokens":
 
 elif mode == "🖥️ Live Local Hardware Check":
     st.title("🖥️ Live Local Hardware Zero-OOM Verification")
-    st.markdown("Queries local physical accelerators or host memory to verify whether this model fits without crashing.")
+    st.markdown(
+        "Queries local physical accelerators or host memory to verify whether this model fits without crashing."
+    )
 
     hw = detect_local_hardware()
     fit = verify_local_fit(
@@ -321,7 +347,9 @@ elif mode == "🖥️ Live Local Hardware Check":
         hardware=hw,
     )
 
-    st.info(f"**Detected Hardware:** {hw.device_name} ({hw.total_memory_gb:.1f} GB Total, {hw.free_memory_gb:.1f} GB Currently Free)")
+    st.info(
+        f"**Detected Hardware:** {hw.device_name} ({hw.total_memory_gb:.1f} GB Total, {hw.free_memory_gb:.1f} GB Currently Free)"
+    )
 
     h1, h2, h3 = st.columns(3)
     with h1:

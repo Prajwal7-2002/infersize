@@ -23,19 +23,33 @@ class SpeculativeEstimateResult(BaseModel):
     draft_precision: str
     batch_size: int
     context_tokens: int
-    lookahead_k: int = Field(description="Number of speculative tokens proposed per draft iteration (K)")
-    acceptance_rate: float = Field(description="Empirical average verification acceptance rate (alpha)")
+    lookahead_k: int = Field(
+        description="Number of speculative tokens proposed per draft iteration (K)"
+    )
+    acceptance_rate: float = Field(
+        description="Empirical average verification acceptance rate (alpha)"
+    )
 
     # VRAM components (GB)
-    target_vram_gb: float = Field(description="VRAM allocated for target model weights, KV, and activations")
-    draft_vram_gb: float = Field(description="VRAM allocated for draft model weights, KV, and activations")
-    total_vram_gb: float = Field(description="Joint VRAM required for target + draft models simultaneously")
+    target_vram_gb: float = Field(
+        description="VRAM allocated for target model weights, KV, and activations"
+    )
+    draft_vram_gb: float = Field(
+        description="VRAM allocated for draft model weights, KV, and activations"
+    )
+    total_vram_gb: float = Field(
+        description="Joint VRAM required for target + draft models simultaneously"
+    )
     gpu_total_vram_gb: float = Field(description="Total physical VRAM available on the GPU")
     headroom_gb: float = Field(description="Remaining free VRAM headroom in GB")
-    fits_in_vram: bool = Field(description="True if joint target + draft footprint fits within GPU VRAM")
+    fits_in_vram: bool = Field(
+        description="True if joint target + draft footprint fits within GPU VRAM"
+    )
 
     # Latency physics (milliseconds per forward pass / step)
-    draft_step_latency_ms: float = Field(description="DRAM memory-bandwidth latency to generate 1 draft token")
+    draft_step_latency_ms: float = Field(
+        description="DRAM memory-bandwidth latency to generate 1 draft token"
+    )
     target_verify_latency_ms: float = Field(
         description="Latency for target model to verify K tokens in a single parallel forward pass"
     )
@@ -44,14 +58,24 @@ class SpeculativeEstimateResult(BaseModel):
     )
 
     # Speculative dynamics
-    expected_accepted_tokens: float = Field(description="Expected accepted tokens per speculative cycle (1 + alpha * K)")
+    expected_accepted_tokens: float = Field(
+        description="Expected accepted tokens per speculative cycle (1 + alpha * K)"
+    )
     speculative_cycle_latency_ms: float = Field(
         description="Total duration of one speculative cycle (K * draft_step + target_verify)"
     )
-    effective_tpot_ms: float = Field(description="Effective Time Per Output Token with speculative acceleration (ms)")
-    effective_tokens_per_sec: float = Field(description="Effective generated tokens per second per stream")
-    baseline_tokens_per_sec: float = Field(description="Baseline target autoregressive tokens per second")
-    speedup_ratio: float = Field(description="Net latency speedup factor (baseline_tpot / effective_tpot)")
+    effective_tpot_ms: float = Field(
+        description="Effective Time Per Output Token with speculative acceleration (ms)"
+    )
+    effective_tokens_per_sec: float = Field(
+        description="Effective generated tokens per second per stream"
+    )
+    baseline_tokens_per_sec: float = Field(
+        description="Baseline target autoregressive tokens per second"
+    )
+    speedup_ratio: float = Field(
+        description="Net latency speedup factor (baseline_tpot / effective_tpot)"
+    )
 
 
 def estimate_speculative_decoding(
@@ -137,7 +161,9 @@ def estimate_speculative_decoding(
     target_active_weights = target_arch.calculate_active_parameters()
     target_bytes_per_step = (
         int(target_active_weights * BYTES_PER_PARAM.get(target_precision, 2.0))
-        + calculate_kv_cache_bytes_per_token(target_arch, kv_cache_dtype) * context_tokens * batch_size
+        + calculate_kv_cache_bytes_per_token(target_arch, kv_cache_dtype)
+        * context_tokens
+        * batch_size
     )
     baseline_target_lat_ms = (target_bytes_per_step / effective_bw_bytes_sec) * 1000.0
 
@@ -145,7 +171,9 @@ def estimate_speculative_decoding(
     draft_active_weights = draft_arch.calculate_active_parameters()
     draft_bytes_per_step = (
         int(draft_active_weights * BYTES_PER_PARAM.get(draft_precision, 2.0))
-        + calculate_kv_cache_bytes_per_token(draft_arch, kv_cache_dtype) * context_tokens * batch_size
+        + calculate_kv_cache_bytes_per_token(draft_arch, kv_cache_dtype)
+        * context_tokens
+        * batch_size
     )
     draft_step_lat_ms = (draft_bytes_per_step / effective_bw_bytes_sec) * 1000.0
 

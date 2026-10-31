@@ -24,8 +24,12 @@ class DetectedHardware(BaseModel):
     matched_gpu_id: Optional[str] = Field(
         default=None, description="Closest matched infersize GPU preset ID if applicable"
     )
-    cuda_driver_version: Optional[str] = Field(default=None, description="NVIDIA Driver version if CUDA")
-    cuda_compute_capability: Optional[str] = Field(default=None, description="Compute capability (e.g. 8.6, 8.9)")
+    cuda_driver_version: Optional[str] = Field(
+        default=None, description="NVIDIA Driver version if CUDA"
+    )
+    cuda_compute_capability: Optional[str] = Field(
+        default=None, description="Compute capability (e.g. 8.6, 8.9)"
+    )
 
 
 class LocalFitResult(BaseModel):
@@ -44,9 +48,13 @@ class LocalFitResult(BaseModel):
     activations_memory_gb: float
 
     headroom_total_gb: float = Field(description="Memory headroom against total physical memory")
-    headroom_free_gb: float = Field(description="Memory headroom against currently free available memory")
+    headroom_free_gb: float = Field(
+        description="Memory headroom against currently free available memory"
+    )
     fits_total: bool = Field(description="Whether the workload fits inside total physical capacity")
-    fits_currently: bool = Field(description="Whether the workload fits in currently free memory without evicting apps")
+    fits_currently: bool = Field(
+        description="Whether the workload fits in currently free memory without evicting apps"
+    )
     verdict: str = Field(description="Clear human-readable engineering verdict")
 
 
@@ -145,14 +153,18 @@ def detect_local_hardware() -> DetectedHardware:
     # 2. Try nvidia-smi CLI if torch is not installed or lacks CUDA
     if shutil.which("nvidia-smi"):
         try:
-            out = subprocess.check_output(
-                [
-                    "nvidia-smi",
-                    "--query-gpu=name,memory.total,memory.free,driver_version",
-                    "--format=csv,noheader,nounits",
-                ],
-                stderr=subprocess.DEVNULL,
-            ).decode().strip()
+            out = (
+                subprocess.check_output(
+                    [
+                        "nvidia-smi",
+                        "--query-gpu=name,memory.total,memory.free,driver_version",
+                        "--format=csv,noheader,nounits",
+                    ],
+                    stderr=subprocess.DEVNULL,
+                )
+                .decode()
+                .strip()
+            )
 
             lines = out.splitlines()
             if lines:

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./assets/banner.svg" alt="infersize banner" width="100%">
+</p>
+
 # infersize ⚡
 
 > **Analytical Performance Modeling, Cloud Cost ($/1M tokens) & VRAM Capacity Planner for LLM Serving.**  

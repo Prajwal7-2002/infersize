@@ -9,7 +9,7 @@
 
 [![CI](https://github.com/Prajwal7-2002/infersize/actions/workflows/ci.yml/badge.svg)](https://github.com/Prajwal7-2002/infersize/actions)
 [![PyPI version](https://img.shields.io/pypi/v/infersize.svg?color=blue)](https://pypi.org/project/infersize/)
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://infersize-sqv5udvwf5vfqwc7xvpx8t.streamlit.app/)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://infersize.streamlit.app/)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://prajwal7-2002.github.io/infersize/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -72,7 +72,7 @@ uv add infersize
 pip install "infersize[ui]"
 ```
 
-> 🌐 **Live Web Studio**: Run the interactive calculator in your browser at **[infersize-sqv5udvwf5vfqwc7xvpx8t.streamlit.app](https://infersize-sqv5udvwf5vfqwc7xvpx8t.streamlit.app/)** or launch locally via `infersize ui`.
+> 🌐 **Live Web Studio**: Run the interactive calculator in your browser at **[infersize.streamlit.app](https://infersize.streamlit.app/)** or launch locally via `infersize ui`.
 
 
 ### 1. Cloud Cost & Throughput Sizing (\$/1M Tokens)
@@ -268,7 +268,7 @@ Launch the full-featured browser studio locally:
 infersize ui --port 8501
 ```
 
-Or open the hosted cloud instance at **[infersize-sqv5udvwf5vfqwc7xvpx8t.streamlit.app](https://infersize-sqv5udvwf5vfqwc7xvpx8t.streamlit.app/)**.
+Or open the hosted cloud instance at **[infersize.streamlit.app](https://infersize.streamlit.app/)**.
 
 ---
 

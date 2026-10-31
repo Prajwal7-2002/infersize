@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#030712" />
+    </linearGradient>
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.8" />
+      <stop offset="50%" stop-color="#06b6d4" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.1" />
+    </linearGradient>
+    <linearGradient id="goldGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+    <linearGradient id="cyanGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22d3ee" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background Squircle -->
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bgGrad)" stroke="url(#borderGrad)" stroke-width="4" />
+
+  <!-- Subtle Silicon Circuit Grid -->
+  <g opacity="0.15" stroke="#f59e0b" stroke-width="2" stroke-linecap="round">
+    <line x1="80" y1="120" x2="200" y2="120" />
+    <line x1="200" y1="120" x2="200" y2="180" />
+    <circle cx="80" cy="120" r="4" fill="#f59e0b" />
+    
+    <line x1="432" y1="120" x2="312" y2="120" />
+    <line x1="312" y1="120" x2="312" y2="180" />
+    <circle cx="432" cy="120" r="4" fill="#f59e0b" />
+
+    <line x1="80" y1="392" x2="200" y2="392" />
+    <line x1="200" y1="392" x2="200" y2="332" />
+    <circle cx="80" cy="392" r="4" fill="#f59e0b" />
+
+    <line x1="432" y1="392" x2="312" y2="392" />
+    <line x1="312" y1="392" x2="312" y2="332" />
+    <circle cx="432" cy="392" r="4" fill="#f59e0b" />
+
+    <!-- Bus lines -->
+    <line x1="16" y1="256" x2="120" y2="256" />
+    <line x1="496" y1="256" x2="392" y2="256" />
+    <line x1="256" y1="16" x2="256" y2="120" />
+    <line x1="256" y1="496" x2="256" y2="392" />
+  </g>
+
+  <!-- Central Silicon Die -->
+  <rect x="144" y="144" width="224" height="224" rx="28" fill="#090d16" stroke="url(#cyanGlow)" stroke-width="3" />
+  <rect x="160" y="160" width="192" height="192" rx="20" fill="#0d1424" stroke="rgba(6,182,212,0.3)" stroke-width="2" />
+
+  <!-- Roofline Coordinate Curve (Cyan) -->
+  <path d="M 180 320 L 256 200 L 332 200" fill="none" stroke="url(#cyanGlow)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" />
+  <circle cx="256" cy="200" r="5" fill="#22d3ee" filter="url(#glow)" />
+
+  <!-- Iconic Lightning Bolt (Electric Gold) -->
+  <path d="M 276 176 L 208 268 L 252 268 L 236 340 L 308 244 L 264 244 Z" fill="url(#goldGlow)" filter="url(#glow)" />
+</svg>

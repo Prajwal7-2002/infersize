@@ -31,6 +31,8 @@ from infersize.analytics.cost import (
     estimate_serving_cost,
 )
 from infersize.analytics.report import generate_architecture_report
+from infersize.analytics.speculative import estimate_speculative_decoding
+from infersize.hardware.detect import detect_local_hardware, verify_local_fit
 from infersize.analytics.vram import (
     estimate_vram_usage,
     find_max_concurrent_batch_size,
@@ -832,6 +834,214 @@ def gpus():
 def version():
     """Display infersize package version."""
     console.print(f"[bold cyan]infersize[/] version [bold green]{__version__}[/]")
+
+
+
+@app.command()
+def spec(
+    target: str = typer.Option("qwen2.5-32b", "--target", "-t", help="Target model preset name or HF repo ID"),
+    draft: str = typer.Option("qwen2.5-0.5b", "--draft", "-d", help="Draft model preset name or HF repo ID"),
+    gpu: str = typer.Option("a100-80gb", "--gpu", "-g", help="Target GPU hardware profile"),
+    target_quant: str = typer.Option("fp16", "--target-quant", help="Quantization for target model weights"),
+    draft_quant: str = typer.Option("fp16", "--draft-quant", help="Quantization for draft model weights"),
+    kv_cache: str = typer.Option("fp16", "--kv-cache", help="KV-cache data type"),
+    batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent request streams"),
+    context: int = typer.Option(2048, "--context", "-c", help="Sequence length (prompt + output)"),
+    lookahead: int = typer.Option(4, "--lookahead", "-k", help="Speculative proposal length K"),
+    acceptance: float = typer.Option(0.70, "--acceptance", "-a", help="Empirical token verification acceptance rate (alpha)"),
+    tp: int = typer.Option(1, "--tp", help="Tensor Parallelism degree across GPUs"),
+):
+    """Analytically model Speculative Decoding joint VRAM and Leviathan speedup."""
+    target_arch = _resolve_model(target)
+    draft_arch = _resolve_model(draft)
+    gpu_profile = get_gpu_profile(gpu)
+
+    res = estimate_speculative_decoding(
+        target_arch=target_arch,
+        draft_arch=draft_arch,
+        gpu=gpu_profile,
+        target_precision=target_quant,
+        draft_precision=draft_quant,
+        kv_cache_dtype=kv_cache,
+        batch_size=batch_size,
+        context_tokens=context,
+        lookahead_k=lookahead,
+        acceptance_rate=acceptance,
+        tensor_parallel=tp,
+    )
+
+    console.print()
+    status_style = "bold green" if res.fits_in_vram else "bold red"
+    status_icon = "✔ FIT" if res.fits_in_vram else "✘ OOM"
+    console.print(
+        Panel(
+            f"[bold cyan]Target:[/] {res.target_model_name} ({target_quant.upper()}) | "
+            f"[bold cyan]Draft:[/] {res.draft_model_name} ({draft_quant.upper()}) | "
+            f"[bold cyan]GPU:[/] {res.gpu_name} (TP={tp})\n"
+            f"[bold cyan]Workload:[/] Batch: {res.batch_size} | Context: {res.context_tokens:,} tokens | "
+            f"K: {res.lookahead_k} | Alpha: {res.acceptance_rate:.2f}\n"
+            f"[bold cyan]Status:[/] [{status_style}]{status_icon} - {'CAPACITY NORMAL' if res.fits_in_vram else 'OUT-OF-MEMORY'}[/]",
+            title="[bold yellow]⚡ INFERSIZE: SPECULATIVE DECODING CAPACITY & ROOFLINE SIZER[/]",
+            border_style="cyan",
+            box=box.ROUNDED,
+        )
+    )
+
+    table = Table(box=box.SIMPLE_HEAVY, header_style="bold cyan")
+    table.add_column("Speculative Sizing Metric", style="bold")
+    table.add_column("Value", justify="right", style="bold green")
+    table.add_column("Engineering Analysis & Verification Physics")
+
+    table.add_row(
+        "Target Model VRAM",
+        f"{res.target_vram_gb:.2f} GB",
+        f"Weights + KV-Cache ({kv_cache}) + Activation buffers",
+    )
+    table.add_row(
+        "Draft Model VRAM",
+        f"{res.draft_vram_gb:.2f} GB",
+        f"Weights + KV-Cache ({kv_cache}) + Activation buffers",
+    )
+    table.add_row(
+        "Total Joint VRAM",
+        f"{res.total_vram_gb:.2f} GB",
+        f"Target + Draft + CUDA context held concurrently in VRAM",
+    )
+    table.add_row(
+        "GPU Total VRAM",
+        f"{res.gpu_total_vram_gb:.1f} GB",
+        f"Physical VRAM limit of {res.gpu_name}",
+    )
+    headroom_style = "green" if res.headroom_gb >= 0 else "red"
+    table.add_row(
+        "VRAM Headroom",
+        f"[{headroom_style}]{res.headroom_gb:+.2f} GB[/]",
+        "Safe operational headroom" if res.headroom_gb >= 0 else "VRAM deficit: Will crash with CUDA OOM",
+    )
+    table.add_section()
+    table.add_row(
+        "Draft Step Latency",
+        f"{res.draft_step_latency_ms:.1f} ms",
+        f"Time to generate 1 draft token at memory bandwidth limits",
+    )
+    table.add_row(
+        "Target Verify Pass",
+        f"{res.target_verify_latency_ms:.1f} ms",
+        f"Target parallel forward pass verifying all {res.lookahead_k} candidates",
+    )
+    table.add_row(
+        "Target Baseline TPOT",
+        f"{res.baseline_autoregressive_latency_ms:.1f} ms",
+        f"Standard autoregressive decode without speculation ({res.baseline_tokens_per_sec:.1f} tok/s)",
+    )
+    table.add_row(
+        "Expected Accepted / Cycle",
+        f"{res.expected_accepted_tokens:.2f} tokens",
+        f"Guaranteed 1 token + (alpha {res.acceptance_rate} * K {res.lookahead_k})",
+    )
+    table.add_row(
+        "Effective Speculative TPOT",
+        f"{res.effective_tpot_ms:.1f} ms",
+        f"Net latency per emitted token across speculative cycles",
+    )
+    table.add_row(
+        "Effective Generation Rate",
+        f"{res.effective_tokens_per_sec:.1f} tok/s",
+        f"Effective throughput per concurrent user stream",
+    )
+    table.add_row(
+        "NET SPECULATIVE SPEEDUP",
+        f"[bold yellow]{res.speedup_ratio:.2f}x[/]",
+        f"Net acceleration over standard autoregressive decoding",
+    )
+
+    console.print(table)
+    console.print()
+
+
+@app.command()
+def fit(
+    model: str = typer.Option("qwen2.5-7b", "--model", "-m", help="Model preset name or Hugging Face repository ID"),
+    quant: str = typer.Option("fp16", "--quant", "-q", help="Weight quantization precision"),
+    kv_cache: str = typer.Option("fp16", "--kv-cache", help="KV-cache data type"),
+    batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent request streams"),
+    context: int = typer.Option(2048, "--context", "-c", help="Sequence length (prompt + output)"),
+):
+    """Detect local accelerator/CPU hardware and verify zero-OOM execution fit."""
+    arch = _resolve_model(model)
+    hw = detect_local_hardware()
+    fit_res = verify_local_fit(
+        arch=arch,
+        precision=quant,
+        kv_cache_dtype=kv_cache,
+        batch_size=batch_size,
+        context_tokens=context,
+        hardware=hw,
+    )
+
+    console.print()
+    verdict_style = "bold green" if fit_res.fits_currently else ("bold yellow" if fit_res.fits_total else "bold red")
+    console.print(
+        Panel(
+            f"[bold cyan]Detected Silicon:[/] {hw.device_name} ({hw.total_memory_gb:.1f} GB Total, {hw.free_memory_gb:.1f} GB Currently Free)\n"
+            f"[bold cyan]Model Workload:[/] {arch.name} ({quant.upper()}) | Batch: {batch_size} | Context: {context:,} tokens\n"
+            f"[bold cyan]Memory Demand:[/] {fit_res.required_memory_gb:.2f} GB Required\n"
+            f"[bold cyan]Verdict:[/] [{verdict_style}]{fit_res.verdict}[/]",
+            title="[bold green]🖥️ INFERSIZE: LIVE HARDWARE ZERO-OOM VERIFIER[/]",
+            border_style="green",
+            box=box.ROUNDED,
+        )
+    )
+
+    table = Table(box=box.SIMPLE_HEAVY, header_style="bold cyan")
+    table.add_column("Memory Component", style="bold")
+    table.add_column("Footprint", justify="right")
+    table.add_column("Context")
+
+    table.add_row("Model Weights", f"{fit_res.weights_memory_gb:.2f} GB", f"Static memory for {arch.name} in {quant.upper()}")
+    table.add_row("KV-Cache Buffer", f"{fit_res.kv_cache_memory_gb:.2f} GB", f"Batch {batch_size} x {context:,} tokens in {kv_cache.upper()}")
+    table.add_row("Activation Overhead", f"{fit_res.activations_memory_gb:.2f} GB", "Transient tensor allocations")
+    table.add_section()
+    table.add_row("Total Required", f"{fit_res.required_memory_gb:.2f} GB", "Minimum physical memory necessary")
+    table.add_row("Total Silicon Memory", f"{hw.total_memory_gb:.1f} GB", f"Physical capacity of {hw.device_name}")
+    table.add_row("Currently Free Memory", f"{hw.free_memory_gb:.1f} GB", "Free memory without closing existing processes")
+    console.print(table)
+    console.print()
+
+
+@app.command()
+def ui(
+    port: int = typer.Option(8501, "--port", "-p", help="Port to bind the Streamlit web studio"),
+    browser: bool = typer.Option(True, "--browser/--no-browser", help="Open browser automatically"),
+):
+    """Launch the interactive Streamlit LLM Capacity Planner web studio."""
+    import shutil
+    import subprocess
+
+    app_path = Path(__file__).resolve().parent / "ui" / "app.py"
+    if not app_path.exists():
+        app_path = Path(__file__).resolve().parent.parent.parent / "app.py"
+
+    console.print("[bold cyan]Launching infersize Interactive Sizing Studio...[/]")
+    cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(app_path),
+        "--server.port",
+        str(port),
+    ]
+    if not browser:
+        cmd.extend(["--server.headless", "true"])
+
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        console.print("[bold yellow]Infersize UI stopped.[/]")
+    except Exception as e:
+        console.print(f"[bold red]Failed to start Streamlit:[/] {e}")
+        console.print("[yellow]Make sure streamlit is installed: pip install 'infersize[ui]'[/]")
 
 
 if __name__ == "__main__":

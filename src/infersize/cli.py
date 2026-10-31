@@ -38,7 +38,8 @@ from infersize.analytics.vram import (
 )
 from infersize.hardware.pricing import CLOUD_GPU_PRICING
 from infersize.hardware.specs import GPU_PRESETS, get_gpu_profile
-from infersize.models.specs import MODEL_PRESETS, get_model_spec
+from infersize.models.loader import resolve_model_arch
+from infersize.models.specs import MODEL_PRESETS, ModelArch
 
 app = typer.Typer(
     name="infersize",
@@ -46,6 +47,25 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console(legacy_windows=False)
+
+
+def _resolve_model(
+    model: str,
+    hf: bool = False,
+    config: str | None = None,
+    hf_token: str | None = None,
+) -> ModelArch:
+    """Resolve model architecture from preset, local config file, or Hugging Face hub."""
+    try:
+        return resolve_model_arch(
+            model_identifier=model,
+            hf_token=hf_token,
+            is_hf_flag=hf,
+            config_path=config,
+        )
+    except Exception as e:
+        console.print(f"[bold red]Error resolving model:[/] {e}")
+        raise typer.Exit(code=1)
 
 
 def _format_memory_bar(res) -> str:
@@ -88,10 +108,19 @@ def vram(
     batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent serving batch size"),
     context: int = typer.Option(2048, "--context", "-c", help="Sequence context length in tokens"),
     tensor_parallel: int = typer.Option(1, "--tp", help="Tensor parallelism degree (TP)"),
+    hf: bool = typer.Option(
+        False, "--hf", help="Fetch model architecture directly from Hugging Face Hub"
+    ),
+    config: str | None = typer.Option(
+        None, "--config", help="Path to local Hugging Face config.json file"
+    ),
+    hf_token: str | None = typer.Option(
+        None, "--hf-token", help="Hugging Face API token for gated or private repositories"
+    ),
 ):
     """Predict exact physical VRAM footprint and capacity headroom before downloading or serving."""
+    model_spec = _resolve_model(model=model, hf=hf, config=config, hf_token=hf_token)
     try:
-        model_spec = get_model_spec(model)
         gpu_spec = get_gpu_profile(gpu)
     except ValueError as e:
         console.print(f"[bold red]Error:[/] {e}")
@@ -207,16 +236,21 @@ def compare(
         help="Comma-separated GPU IDs to compare (e.g. 'rtx4090,a100-80gb,l4'), or empty for standard set",
     ),
     tensor_parallel: int = typer.Option(1, "--tp", help="Tensor parallelism degree (TP)"),
+    hf: bool = typer.Option(
+        False, "--hf", help="Fetch model architecture directly from Hugging Face Hub"
+    ),
+    config: str | None = typer.Option(
+        None, "--config", help="Path to local Hugging Face config.json file"
+    ),
+    hf_token: str | None = typer.Option(
+        None, "--hf-token", help="Hugging Face API token for gated or private repositories"
+    ),
     json_output: bool = typer.Option(
         False, "--json", help="Output comparison result as JSON for automated pipelines and CI"
     ),
 ):
     """Compare workload capacity, VRAM fit, headroom, and batch limits across multiple GPUs."""
-    try:
-        model_spec = get_model_spec(model)
-    except ValueError as e:
-        console.print(f"[bold red]Error:[/] {e}")
-        raise typer.Exit(code=1)
+    model_spec = _resolve_model(model=model, hf=hf, config=config, hf_token=hf_token)
 
     candidate_gpus = None
     if gpus.strip():
@@ -346,13 +380,22 @@ def cost(
         "--compare-clouds",
         help="Compare hourly cost and $/1M tokens across all cloud providers",
     ),
+    hf: bool = typer.Option(
+        False, "--hf", help="Fetch model architecture directly from Hugging Face Hub"
+    ),
+    config: str | None = typer.Option(
+        None, "--config", help="Path to local Hugging Face config.json file"
+    ),
+    hf_token: str | None = typer.Option(
+        None, "--hf-token", help="Hugging Face API token for gated or private repositories"
+    ),
     json_output: bool = typer.Option(
         False, "--json", help="Output result as JSON for automated pipelines and CI"
     ),
 ):
     """Predict memory-bandwidth decode throughput, TPOT latency, and $/1M tokens serving cost."""
+    model_spec = _resolve_model(model=model, hf=hf, config=config, hf_token=hf_token)
     try:
-        model_spec = get_model_spec(model)
         gpu_spec = get_gpu_profile(gpu)
     except ValueError as e:
         console.print(f"[bold red]Error:[/] {e}")
@@ -573,13 +616,22 @@ def report(
     output: str | None = typer.Option(
         None, "--output", "-o", help="File path to save the generated Markdown RFC report"
     ),
+    hf: bool = typer.Option(
+        False, "--hf", help="Fetch model architecture directly from Hugging Face Hub"
+    ),
+    config: str | None = typer.Option(
+        None, "--config", help="Path to local Hugging Face config.json file"
+    ),
+    hf_token: str | None = typer.Option(
+        None, "--hf-token", help="Hugging Face API token for gated or private repositories"
+    ),
     json_output: bool = typer.Option(
         False, "--json", help="Output complete report specification as JSON"
     ),
 ):
     """Generate and export a publication-ready Architecture RFC and Sizing Specification."""
+    model_spec = _resolve_model(model=model, hf=hf, config=config, hf_token=hf_token)
     try:
-        model_spec = get_model_spec(model)
         gpu_spec = get_gpu_profile(gpu)
     except ValueError as e:
         console.print(f"[bold red]Error:[/] {e}")
@@ -641,9 +693,18 @@ def max_batch(
     context: int = typer.Option(2048, "--context", "-c"),
     kv_cache: str = typer.Option("fp16", "--kv-cache", "-k"),
     tensor_parallel: int = typer.Option(1, "--tp", help="Tensor parallelism degree"),
+    hf: bool = typer.Option(
+        False, "--hf", help="Fetch model architecture directly from Hugging Face Hub"
+    ),
+    config: str | None = typer.Option(
+        None, "--config", help="Path to local Hugging Face config.json file"
+    ),
+    hf_token: str | None = typer.Option(
+        None, "--hf-token", help="Hugging Face API token for gated or private repositories"
+    ),
 ):
     """Calculate the maximum concurrent request batch size before running out of VRAM."""
-    model_spec = get_model_spec(model)
+    model_spec = _resolve_model(model=model, hf=hf, config=config, hf_token=hf_token)
     gpu_spec = get_gpu_profile(gpu)
 
     limit = find_max_concurrent_batch_size(
@@ -677,9 +738,18 @@ def max_context(
     batch_size: int = typer.Option(1, "--batch-size", "-b"),
     kv_cache: str = typer.Option("fp16", "--kv-cache", "-k"),
     tensor_parallel: int = typer.Option(1, "--tp", help="Tensor parallelism degree"),
+    hf: bool = typer.Option(
+        False, "--hf", help="Fetch model architecture directly from Hugging Face Hub"
+    ),
+    config: str | None = typer.Option(
+        None, "--config", help="Path to local Hugging Face config.json file"
+    ),
+    hf_token: str | None = typer.Option(
+        None, "--hf-token", help="Hugging Face API token for gated or private repositories"
+    ),
 ):
     """Calculate the maximum context window (prompt + decode) before running out of VRAM."""
-    model_spec = get_model_spec(model)
+    model_spec = _resolve_model(model=model, hf=hf, config=config, hf_token=hf_token)
     gpu_spec = get_gpu_profile(gpu)
 
     limit = find_max_context_length(

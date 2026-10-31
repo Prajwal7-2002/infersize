@@ -104,10 +104,12 @@ def estimate_serving_cost(
     cluster_hourly = hourly_rate * tp
 
     # Calculate DRAM bytes transferred per decode token step
-    total_params = model.calculate_total_parameters()
+    # For dense models, active params == total params. For MoE models,
+    # decode streams top-K active routed experts per token.
+    active_params = model.calculate_active_parameters()
     bytes_per_param = BYTES_PER_PARAM.get(precision.lower(), 2.0)
-    # Per GPU weight slice
-    weight_bytes = int((total_params * bytes_per_param) / tp)
+    # Per GPU active weight slice
+    weight_bytes = int((active_params * bytes_per_param) / tp)
 
     # Per GPU KV-cache slice: kv_bytes_per_token * batch_size * context_tokens / tp
     kv_bytes_per_token = calculate_kv_cache_bytes_per_token(model, kv_cache_dtype)

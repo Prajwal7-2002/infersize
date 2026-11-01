@@ -54,15 +54,29 @@ Deploying large language models often results in expensive surprises:
 
 ## 📦 Quick Installation
 
+**With [uv](https://docs.astral.sh/uv/) (Recommended & Fastest):**
 ```bash
-# Core CLI engine
-pip install infersize
+# Add to existing project
+uv add "infersize[ui]"
 
-# Or via uv
-uv add infersize
+# Or install in active environment
+uv pip install "infersize[ui]"
 
-# With interactive Streamlit Web Studio
+# Or run instantly without installing
+uvx infersize check
+```
+
+**With standard `pip`:**
+```bash
 pip install "infersize[ui]"
+```
+
+**From Source with `uv`:**
+```bash
+git clone https://github.com/Prajwal7-2002/infersize.git
+cd infersize
+uv sync --extra ui
+uv run infersize ui
 ```
 
 ---

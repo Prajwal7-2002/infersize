@@ -61,18 +61,43 @@ Renting GPU clusters just to discover a model runs out of memory or costs 10x mo
 
 ## 📦 Quickstart
 
+### Installation
+
+**With [uv](https://docs.astral.sh/uv/) (Recommended & Fastest):**
 ```bash
-# Standard CLI installation (Zero external C++/CUDA dependencies)
-pip install infersize
+# Add to your project
+uv add "infersize[ui]"
 
-# Or with uv package manager
-uv add infersize
+# Or install into your active virtual environment
+uv pip install "infersize[ui]"
+```
 
-# Optional: With interactive Streamlit Web Studio
+**Run Immediately Without Installing (`uvx`):**
+```bash
+# Query live hardware or list models on-the-fly
+uvx infersize check
+uvx infersize models
+```
+
+**With standard `pip`:**
+```bash
 pip install "infersize[ui]"
 ```
 
-> 🌐 **Live Web Studio**: Run the interactive calculator in your browser at **[infersize.streamlit.app](https://infersize.streamlit.app/)** or launch locally via `infersize ui`.
+**From Source (Local Clone & Development):**
+```bash
+git clone https://github.com/Prajwal7-2002/infersize.git
+cd infersize
+
+# Creates .venv and installs core + UI in < 1s
+uv sync --extra ui
+
+# Launch local studio or run tests directly
+uv run infersize ui
+uv run pytest
+```
+
+> 🌐 **Live Web Studio**: Prefer zero installation? Use the interactive calculator directly in your browser at **[infersize.streamlit.app](https://infersize.streamlit.app/)**.
 
 
 ### 1. Cloud Cost & Throughput Sizing (\$/1M Tokens)

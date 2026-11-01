@@ -47,6 +47,27 @@ def test_kv_cache_per_token_math():
     assert int4_bytes == 14336
 
 
+def test_mla_kv_cache_compression():
+    """Verify DeepSeek Multi-Head Latent Attention (MLA) cuts KV cache by >95% vs MHA."""
+    deepseek = get_model_spec("deepseek-v3")
+    assert deepseek.is_mla is True
+
+    # MLA formula: layers * (kv_lora_rank + qk_rope_head_dim) * bytes_per_elem
+    # 61 * (512 + 64) * 2 = 70,272 bytes per token
+    mla_fp16_bytes = calculate_kv_cache_bytes_per_token(deepseek, kv_cache_dtype="fp16")
+    assert mla_fp16_bytes == 70272
+
+    # In INT8, exactly half: 35,136 bytes
+    mla_int8_bytes = calculate_kv_cache_bytes_per_token(deepseek, kv_cache_dtype="int8")
+    assert mla_int8_bytes == 35136
+
+    # If DeepSeek-V3 used standard MHA (128 heads, head_dim 128):
+    # 2 * 61 * 128 * 128 * 2 = 3,997,696 bytes per token
+    mha_equivalent_bytes = 2 * 61 * 128 * 128 * 2
+    reduction_pct = (1.0 - (mla_fp16_bytes / mha_equivalent_bytes)) * 100
+    assert reduction_pct > 98.0  # Massive 98.2% KV cache compression
+
+
 def test_weight_memory_precisions():
     """Verify weight memory scales proportionally across precisions."""
     llama_8b = get_model_spec("llama3-8b")

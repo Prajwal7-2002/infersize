@@ -56,7 +56,11 @@ def parse_hf_config_dict(data: dict[str, Any], model_name: str = "custom-model")
     )
 
     # 5. Head dimension
-    head_dim = data.get("head_dim")
+    head_dim = (
+        data.get("head_dim")
+        or data.get("v_head_dim")
+        or data.get("kv_channels")
+    )
     if head_dim is None and num_heads > 0:
         head_dim = hidden_size // num_heads
 
@@ -105,6 +109,15 @@ def parse_hf_config_dict(data: dict[str, Any], model_name: str = "custom-model")
         or 1
     )
     is_moe = num_experts > 1
+    n_shared_experts = int(data.get("n_shared_experts") or 0)
+    moe_intermediate_size = data.get("moe_intermediate_size")
+    first_k_dense_replace = int(data.get("first_k_dense_replace") or 0)
+
+    # 11. Multi-Head Latent Attention (MLA - DeepSeek) detection
+    kv_lora_rank = data.get("kv_lora_rank")
+    q_lora_rank = data.get("q_lora_rank")
+    qk_rope_head_dim = data.get("qk_rope_head_dim") or data.get("qk_nope_head_dim")
+    is_mla = kv_lora_rank is not None
 
     family = model_type if model_type else "transformer"
 
@@ -123,6 +136,13 @@ def parse_hf_config_dict(data: dict[str, Any], model_name: str = "custom-model")
         is_moe=is_moe,
         num_experts=int(num_experts),
         num_experts_per_tok=int(num_experts_per_tok),
+        n_shared_experts=n_shared_experts,
+        moe_intermediate_size=int(moe_intermediate_size) if moe_intermediate_size else None,
+        first_k_dense_replace=first_k_dense_replace,
+        is_mla=is_mla,
+        kv_lora_rank=int(kv_lora_rank) if kv_lora_rank else None,
+        q_lora_rank=int(q_lora_rank) if q_lora_rank else None,
+        qk_rope_head_dim=int(qk_rope_head_dim) if qk_rope_head_dim else None,
     )
 
 

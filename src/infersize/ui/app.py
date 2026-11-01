@@ -144,11 +144,29 @@ def main():
         st.error(f"Error loading model architecture: {e}")
         st.stop()
 
+    # Architecture Info Badges
+    badges = []
+    if arch.is_moe:
+        badges.append(f"🧩 MoE ({arch.num_experts} experts, top-{arch.num_experts_per_tok} active)")
+    if arch.is_mla:
+        badges.append(f"⚡ MLA ({arch.kv_lora_rank}d Latent KV)")
+    elif arch.gqa_ratio > 1.0:
+        badges.append(f"🔍 {arch.gqa_ratio:.1f}x GQA")
+    if badges:
+        st.sidebar.caption(" · ".join(badges))
+
     # Main View: Dispatch by Mode
     if mode == "⚡ Multi-GPU VRAM & Capacity":
         st.title("⚡ Multi-GPU VRAM Footprint & Capacity Matrix")
+        total_p = arch.calculate_total_parameters() / 1e9
+        active_p = arch.calculate_active_parameters() / 1e9
+        param_label = (
+            f"{total_p:.2f}B parameters"
+            if not arch.is_moe
+            else f"{total_p:.1f}B total ({active_p:.1f}B active MoE)"
+        )
         st.markdown(
-            f"Evaluating **{arch.name}** ({arch.calculate_total_parameters() / 1e9:.2f}B parameters) with **{quant_choice.upper()}** weights at **batch {batch_sz}** and **{context_len:,} context tokens**."
+            f"Evaluating **{arch.name}** ({param_label}) with **{quant_choice.upper()}** weights at **batch {batch_sz}** and **{context_len:,} context tokens**."
         )
 
         # Multi-GPU Table

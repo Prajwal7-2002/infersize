@@ -67,14 +67,24 @@ def calculate_kv_cache_bytes_per_token(
 ) -> int:
     """Calculate exact KV-cache bytes required per token sequence step.
 
+    For standard MHA / GQA architectures:
     Formula: 2 * num_layers * num_kv_heads * head_dim * bytes_per_element
-    The factor of 2 accounts for storing both Key (K) and Value (V) tensors.
+    (The factor of 2 accounts for storing separate Key and Value tensors).
+
+    For Multi-Head Latent Attention (DeepSeek MLA):
+    Formula: num_layers * (kv_lora_rank + qk_rope_head_dim) * bytes_per_element
+    (Compresses Key and Value into a single low-rank latent vector + decoupled RoPE key).
     """
     dtype_key = kv_cache_dtype.lower().strip()
     bytes_per_elem = BYTES_PER_KV_ELEM.get(dtype_key, 2.0)
-    bytes_per_token = int(
-        2 * model.num_layers * model.num_key_value_heads * model.head_dim * bytes_per_elem
-    )
+
+    if model.is_mla:
+        latent_dim = (model.kv_lora_rank or 512) + (model.qk_rope_head_dim or 64)
+        bytes_per_token = int(model.num_layers * latent_dim * bytes_per_elem)
+    else:
+        bytes_per_token = int(
+            2 * model.num_layers * model.num_key_value_heads * model.head_dim * bytes_per_elem
+        )
     return bytes_per_token
 
 

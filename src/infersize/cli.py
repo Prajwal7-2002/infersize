@@ -782,22 +782,28 @@ def max_context(
 def models():
     """List all available open-source model architecture presets."""
     table = Table(title="Available Model Presets", box=box.ROUNDED, header_style="bold cyan")
-    table.add_column("Model Identifier", style="bold green")
+    table.add_column("Model Identifier", style="bold green", no_wrap=True)
     table.add_column("Layers", justify="right")
     table.add_column("Hidden Dim", justify="right")
-    table.add_column("KV Heads", justify="right")
-    table.add_column("GQA Ratio", justify="right")
-    table.add_column("Total Parameters", justify="right")
+    table.add_column("KV Heads / Attn", justify="right")
+    table.add_column("Architecture", justify="center")
+    table.add_column("Total Params", justify="right")
+    table.add_column("Active Params", justify="right")
 
     for name, spec in MODEL_PRESETS.items():
-        params = spec.calculate_total_parameters()
+        total_p = spec.calculate_total_parameters()
+        active_p = spec.calculate_active_parameters()
+        attn_desc = f"MLA ({spec.kv_lora_rank}d)" if spec.is_mla else f"{spec.gqa_ratio:.1f}x GQA"
+        arch_type = f"MoE ({spec.num_experts} exp)" if spec.is_moe else "Dense"
+
         table.add_row(
             name,
             str(spec.num_layers),
             str(spec.hidden_size),
-            str(spec.num_key_value_heads),
-            f"{spec.gqa_ratio:.1f}x",
-            f"{params / 1e9:.2f}B",
+            attn_desc,
+            arch_type,
+            f"{total_p / 1e9:.2f}B",
+            f"{active_p / 1e9:.2f}B",
         )
 
     console.print()

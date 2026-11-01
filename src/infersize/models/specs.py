@@ -34,6 +34,35 @@ class ModelArch(BaseModel):
     )
     num_experts: int = Field(default=1, description="Total experts in MoE layer")
     num_experts_per_tok: int = Field(default=1, description="Active routed experts per token")
+    n_shared_experts: int = Field(
+        default=0, description="Number of always-active shared experts (DeepSeek / Qwen MoE)"
+    )
+    moe_intermediate_size: int | None = Field(
+        default=None,
+        description="FFN intermediate dimension for routed experts (if distinct from dense FFN)",
+    )
+    first_k_dense_replace: int = Field(
+        default=0,
+        description="Number of initial bottom layers that remain dense before MoE layers begin",
+    )
+
+    # Multi-Head Latent Attention (MLA - DeepSeek-V2 / V3)
+    is_mla: bool = Field(
+        default=False,
+        description="Whether the architecture uses Multi-Head Latent Attention (DeepSeek MLA)",
+    )
+    kv_lora_rank: int | None = Field(
+        default=None,
+        description="Compressed KV latent dimension (d_c in DeepSeek MLA, e.g. 512)",
+    )
+    q_lora_rank: int | None = Field(
+        default=None,
+        description="Compressed Query latent dimension in MLA (e.g. 1536)",
+    )
+    qk_rope_head_dim: int | None = Field(
+        default=None,
+        description="Decoupled RoPE head dimension for MLA (d_r in DeepSeek, e.g. 64)",
+    )
 
     def model_post_init(self, __context: object) -> None:
         if self.head_dim is None:
@@ -51,61 +80,105 @@ class ModelArch(BaseModel):
         lm_head_params = 0 if self.tie_word_embeddings else (self.vocab_size * self.hidden_size)
 
         # 2. Per-layer Self-Attention:
-        # Q projection: hidden_size * (num_attention_heads * head_dim)
-        # K projection: hidden_size * (num_key_value_heads * head_dim)
-        # V projection: hidden_size * (num_key_value_heads * head_dim)
-        # O projection: (num_attention_heads * head_dim) * hidden_size
-        q_params = self.hidden_size * (self.num_attention_heads * self.head_dim)
-        k_params = self.hidden_size * (self.num_key_value_heads * self.head_dim)
-        v_params = self.hidden_size * (self.num_key_value_heads * self.head_dim)
-        o_params = (self.num_attention_heads * self.head_dim) * self.hidden_size
-        attn_params = q_params + k_params + v_params + o_params
+        if self.is_mla:
+            q_rank = self.q_lora_rank or 1536
+            kv_rank = self.kv_lora_rank or 512
+            rope_dim = self.qk_rope_head_dim or 64
+            h_dim = self.head_dim or 128
 
-        # 3. Per-layer Feed-Forward Network:
-        # SwiGLU uses 3 matrices (gate_proj, up_proj, down_proj: 3 * hidden * intermediate)
-        # Standard MLP (GPT-2, BERT) uses 2 matrices (c_fc, c_proj: 2 * hidden * intermediate)
-        ffn_matrix_factor = 3 if self.mlp_type.lower() == "swiglu" else 2
-        dense_ffn_params = ffn_matrix_factor * self.hidden_size * self.intermediate_size
-        if self.is_moe:
-            ffn_params = self.num_experts * dense_ffn_params
+            q_down = self.hidden_size * q_rank
+            q_up = q_rank * (self.num_attention_heads * (h_dim + rope_dim))
+            kv_down = self.hidden_size * (kv_rank + rope_dim)
+            kv_up = kv_rank * (self.num_attention_heads * (h_dim + h_dim))
+            o_proj = (self.num_attention_heads * h_dim) * self.hidden_size
+            attn_per_layer = q_down + q_up + kv_down + kv_up + o_proj
         else:
-            ffn_params = dense_ffn_params
+            q_params = self.hidden_size * (self.num_attention_heads * self.head_dim)
+            k_params = self.hidden_size * (self.num_key_value_heads * self.head_dim)
+            v_params = self.hidden_size * (self.num_key_value_heads * self.head_dim)
+            o_params = (self.num_attention_heads * self.head_dim) * self.hidden_size
+            attn_per_layer = q_params + k_params + v_params + o_params
+
+        # 3. Feed-Forward Network:
+        ffn_matrix_factor = 3 if self.mlp_type.lower() == "swiglu" else 2
+        dense_ffn_per_layer = ffn_matrix_factor * self.hidden_size * self.intermediate_size
+
+        if self.is_moe:
+            dense_layers = min(self.first_k_dense_replace, self.num_layers)
+            moe_layers = max(0, self.num_layers - dense_layers)
+            moe_inter = self.moe_intermediate_size or self.intermediate_size
+
+            # Routed experts across MoE layers
+            routed_ffn = (
+                moe_layers * self.num_experts * (ffn_matrix_factor * self.hidden_size * moe_inter)
+            )
+            # Shared experts across MoE layers
+            shared_ffn = (
+                moe_layers * self.n_shared_experts * (ffn_matrix_factor * self.hidden_size * moe_inter)
+            )
+            # Initial dense layers
+            initial_dense_ffn = dense_layers * dense_ffn_per_layer
+
+            total_ffn_params = routed_ffn + shared_ffn + initial_dense_ffn
+        else:
+            total_ffn_params = dense_ffn_per_layer * self.num_layers
 
         # 4. Layer Norms (input layernorm + post_attention layernorm per layer + final norm)
-        # RMSNorm has 1 parameter per hidden element: hidden_size
         norm_params = (2 * self.hidden_size) * self.num_layers + self.hidden_size
 
-        per_layer_params = attn_params + ffn_params
-        total_backbone_params = per_layer_params * self.num_layers
+        total_attn_params = attn_per_layer * self.num_layers
 
-        return embed_params + lm_head_params + total_backbone_params + norm_params
+        return embed_params + lm_head_params + total_attn_params + total_ffn_params + norm_params
 
     def calculate_active_parameters(self) -> int:
         """Analytically compute active parameters evaluated per token (top-K experts for MoE)."""
         if not self.is_moe or self.num_experts <= 1:
             return self.calculate_total_parameters()
 
-        # In MoE models, static VRAM holds all E experts, but each decode token step
-        # only routes activations through top-K active experts.
         embed_params = self.vocab_size * self.hidden_size
         lm_head_params = 0 if self.tie_word_embeddings else (self.vocab_size * self.hidden_size)
 
-        q_params = self.hidden_size * (self.num_attention_heads * self.head_dim)
-        k_params = self.hidden_size * (self.num_key_value_heads * self.head_dim)
-        v_params = self.hidden_size * (self.num_key_value_heads * self.head_dim)
-        o_params = (self.num_attention_heads * self.head_dim) * self.hidden_size
-        attn_params = q_params + k_params + v_params + o_params
+        if self.is_mla:
+            q_rank = self.q_lora_rank or 1536
+            kv_rank = self.kv_lora_rank or 512
+            rope_dim = self.qk_rope_head_dim or 64
+            h_dim = self.head_dim or 128
+
+            q_down = self.hidden_size * q_rank
+            q_up = q_rank * (self.num_attention_heads * (h_dim + rope_dim))
+            kv_down = self.hidden_size * (kv_rank + rope_dim)
+            kv_up = kv_rank * (self.num_attention_heads * (h_dim + h_dim))
+            o_proj = (self.num_attention_heads * h_dim) * self.hidden_size
+            attn_per_layer = q_down + q_up + kv_down + kv_up + o_proj
+        else:
+            q_params = self.hidden_size * (self.num_attention_heads * self.head_dim)
+            k_params = self.hidden_size * (self.num_key_value_heads * self.head_dim)
+            v_params = self.hidden_size * (self.num_key_value_heads * self.head_dim)
+            o_params = (self.num_attention_heads * self.head_dim) * self.hidden_size
+            attn_per_layer = q_params + k_params + v_params + o_params
 
         ffn_matrix_factor = 3 if self.mlp_type.lower() == "swiglu" else 2
-        dense_ffn_params = ffn_matrix_factor * self.hidden_size * self.intermediate_size
-        active_ffn_params = self.num_experts_per_tok * dense_ffn_params
+        dense_ffn_per_layer = ffn_matrix_factor * self.hidden_size * self.intermediate_size
 
+        dense_layers = min(self.first_k_dense_replace, self.num_layers)
+        moe_layers = max(0, self.num_layers - dense_layers)
+        moe_inter = self.moe_intermediate_size or self.intermediate_size
+
+        active_routed_ffn = (
+            moe_layers
+            * self.num_experts_per_tok
+            * (ffn_matrix_factor * self.hidden_size * moe_inter)
+        )
+        shared_ffn = (
+            moe_layers * self.n_shared_experts * (ffn_matrix_factor * self.hidden_size * moe_inter)
+        )
+        initial_dense_ffn = dense_layers * dense_ffn_per_layer
+
+        active_ffn_params = active_routed_ffn + shared_ffn + initial_dense_ffn
         norm_params = (2 * self.hidden_size) * self.num_layers + self.hidden_size
+        total_attn_params = attn_per_layer * self.num_layers
 
-        per_layer_active = attn_params + active_ffn_params
-        total_active_backbone = per_layer_active * self.num_layers
-
-        return embed_params + lm_head_params + total_active_backbone + norm_params
+        return embed_params + lm_head_params + total_attn_params + active_ffn_params + norm_params
 
 
 # Standard Open-Weights Presets
@@ -233,6 +306,82 @@ MODEL_PRESETS: dict[str, ModelArch] = {
         head_dim=96,
         vocab_size=32064,
         tie_word_embeddings=False,
+    ),
+    # Mixture of Experts (MoE) & Multi-Head Latent Attention (MLA)
+    "deepseek-v3": ModelArch(
+        name="deepseek-v3",
+        family="deepseek",
+        num_layers=61,
+        hidden_size=7168,
+        intermediate_size=18432,
+        num_attention_heads=128,
+        num_key_value_heads=128,
+        head_dim=128,
+        vocab_size=129280,
+        tie_word_embeddings=False,
+        is_moe=True,
+        num_experts=256,
+        num_experts_per_tok=8,
+        n_shared_experts=1,
+        moe_intermediate_size=2048,
+        first_k_dense_replace=3,
+        is_mla=True,
+        kv_lora_rank=512,
+        q_lora_rank=1536,
+        qk_rope_head_dim=64,
+    ),
+    "deepseek-r1": ModelArch(
+        name="deepseek-r1",
+        family="deepseek",
+        num_layers=61,
+        hidden_size=7168,
+        intermediate_size=18432,
+        num_attention_heads=128,
+        num_key_value_heads=128,
+        head_dim=128,
+        vocab_size=129280,
+        tie_word_embeddings=False,
+        is_moe=True,
+        num_experts=256,
+        num_experts_per_tok=8,
+        n_shared_experts=1,
+        moe_intermediate_size=2048,
+        first_k_dense_replace=3,
+        is_mla=True,
+        kv_lora_rank=512,
+        q_lora_rank=1536,
+        qk_rope_head_dim=64,
+    ),
+    "qwen2.5-moe-14b": ModelArch(
+        name="qwen2.5-moe-14b",
+        family="qwen",
+        num_layers=28,
+        hidden_size=2048,
+        intermediate_size=1408,
+        num_attention_heads=16,
+        num_key_value_heads=2,
+        head_dim=128,
+        vocab_size=152064,
+        tie_word_embeddings=False,
+        is_moe=True,
+        num_experts=64,
+        num_experts_per_tok=8,
+        n_shared_experts=0,
+    ),
+    "mixtral-8x7b": ModelArch(
+        name="mixtral-8x7b",
+        family="mixtral",
+        num_layers=32,
+        hidden_size=4096,
+        intermediate_size=14336,
+        num_attention_heads=32,
+        num_key_value_heads=8,
+        head_dim=128,
+        vocab_size=32000,
+        tie_word_embeddings=False,
+        is_moe=True,
+        num_experts=8,
+        num_experts_per_tok=2,
     ),
     # GPT-2 (for fast local CPU unit testing)
     "gpt2": ModelArch(

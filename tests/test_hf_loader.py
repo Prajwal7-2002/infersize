@@ -109,6 +109,57 @@ def test_moe_cost_uses_active_parameters():
     assert res.tokens_per_sec_per_user > 50  # Fast decode due to streaming only 2 experts
 
 
+def test_parse_hf_config_dict_deepseek_v3_mla():
+    """Verify parsing DeepSeek-V3 architecture with MLA and 256 fine-grained MoE experts."""
+    deepseek_cfg = {
+        "architectures": ["DeepseekV3ForCausalLM"],
+        "model_type": "deepseek_v3",
+        "num_hidden_layers": 61,
+        "hidden_size": 7168,
+        "intermediate_size": 18432,
+        "moe_intermediate_size": 2048,
+        "num_attention_heads": 128,
+        "num_key_value_heads": 128,
+        "kv_lora_rank": 512,
+        "q_lora_rank": 1536,
+        "qk_rope_head_dim": 64,
+        "v_head_dim": 128,
+        "n_routed_experts": 256,
+        "num_experts_per_tok": 8,
+        "n_shared_experts": 1,
+        "first_k_dense_replace": 3,
+        "vocab_size": 129280,
+    }
+    spec = parse_hf_config_dict(deepseek_cfg, model_name="deepseek-ai/DeepSeek-V3")
+    assert spec.is_moe is True
+    assert spec.is_mla is True
+    assert spec.num_experts == 256
+    assert spec.num_experts_per_tok == 8
+    assert spec.n_shared_experts == 1
+    assert spec.kv_lora_rank == 512
+    assert spec.qk_rope_head_dim == 64
+
+    total_p = spec.calculate_total_parameters()
+    active_p = spec.calculate_active_parameters()
+
+    # DeepSeek-V3 is ~671B total parameters, with ~37B active per token
+    assert 665e9 < total_p < 675e9
+    assert 36e9 < active_p < 39e9
+
+
+def test_deepseek_v3_preset_resolution():
+    """Verify resolving built-in deepseek-v3 and deepseek-r1 presets."""
+    v3 = resolve_model_arch("deepseek-v3")
+    assert v3.is_mla is True
+    assert v3.is_moe is True
+    assert v3.num_experts == 256
+    assert v3.num_experts_per_tok == 8
+
+    r1 = resolve_model_arch("deepseek-r1")
+    assert r1.is_mla is True
+    assert r1.num_experts == 256
+
+
 def test_load_model_arch_from_local_config(tmp_path):
     """Verify loading architecture from a local config.json file."""
     cfg = {

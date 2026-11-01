@@ -114,7 +114,9 @@ class ModelArch(BaseModel):
             )
             # Shared experts across MoE layers
             shared_ffn = (
-                moe_layers * self.n_shared_experts * (ffn_matrix_factor * self.hidden_size * moe_inter)
+                moe_layers
+                * self.n_shared_experts
+                * (ffn_matrix_factor * self.hidden_size * moe_inter)
             )
             # Initial dense layers
             initial_dense_ffn = dense_layers * dense_ffn_per_layer

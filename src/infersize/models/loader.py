@@ -56,11 +56,7 @@ def parse_hf_config_dict(data: dict[str, Any], model_name: str = "custom-model")
     )
 
     # 5. Head dimension
-    head_dim = (
-        data.get("head_dim")
-        or data.get("v_head_dim")
-        or data.get("kv_channels")
-    )
+    head_dim = data.get("head_dim") or data.get("v_head_dim") or data.get("kv_channels")
     if head_dim is None and num_heads > 0:
         head_dim = hidden_size // num_heads
 

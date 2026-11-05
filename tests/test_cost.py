@@ -174,3 +174,34 @@ def pytest_approx(val):
     import pytest
 
     return pytest.approx(val, rel=1e-3)
+
+
+def test_bandwidth_override_and_overhead():
+    model, gpu = get_model_spec("qwen2.5-1.5b"), get_gpu_profile("rtx3050")
+    base = estimate_serving_cost(model, gpu, precision="q4_k_m", context_tokens=256)
+    half_bw = estimate_serving_cost(
+        model, gpu, precision="q4_k_m", context_tokens=256, bandwidth_gb_s=84.0
+    )
+    assert half_bw.memory_bandwidth_gb_s == 84.0
+    assert abs(half_bw.time_per_step_ms - 2 * base.time_per_step_ms) < 0.01
+    slow = estimate_serving_cost(
+        model, gpu, precision="q4_k_m", context_tokens=256, decode_overhead_ms=4.0
+    )
+    assert abs(slow.time_per_step_ms - (base.time_per_step_ms + 4.0)) < 0.01
+    assert slow.decode_overhead_ms == 4.0
+
+
+def test_unknown_precision_is_an_error_not_fp16():
+    import pytest
+
+    with pytest.raises(ValueError, match="Unknown weight precision"):
+        estimate_serving_cost(get_model_spec("qwen2.5-0.5b"), get_gpu_profile("t4"), "q4")
+    result = runner.invoke(app, ["cost", "-m", "qwen2.5-0.5b", "-g", "t4", "-q", "q4"])
+    assert result.exit_code != 0
+    assert "q4_k_m" in result.output
+
+
+def test_cost_output_labels_ceiling():
+    result = runner.invoke(app, ["cost", "-m", "qwen2.5-0.5b", "-g", "rtx3050", "-q", "q4_k_m"])
+    assert result.exit_code == 0
+    assert "ceiling" in result.output

@@ -5,9 +5,9 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from infersize.analytics.vram import (
-    BYTES_PER_PARAM,
     calculate_kv_cache_bytes_per_token,
     estimate_vram_usage,
+    get_bytes_per_param,
 )
 from infersize.hardware.specs import GPUProfile
 from infersize.models.specs import ModelArch
@@ -160,7 +160,7 @@ def estimate_speculative_decoding(
     # In decode, every step reads active weights + KV cache
     target_active_weights = target_arch.calculate_active_parameters()
     target_bytes_per_step = (
-        int(target_active_weights * BYTES_PER_PARAM.get(target_precision, 2.0))
+        int(target_active_weights * get_bytes_per_param(target_precision))
         + calculate_kv_cache_bytes_per_token(target_arch, kv_cache_dtype)
         * context_tokens
         * batch_size
@@ -170,7 +170,7 @@ def estimate_speculative_decoding(
     # Draft model single-token step latency
     draft_active_weights = draft_arch.calculate_active_parameters()
     draft_bytes_per_step = (
-        int(draft_active_weights * BYTES_PER_PARAM.get(draft_precision, 2.0))
+        int(draft_active_weights * get_bytes_per_param(draft_precision))
         + calculate_kv_cache_bytes_per_token(draft_arch, kv_cache_dtype)
         * context_tokens
         * batch_size

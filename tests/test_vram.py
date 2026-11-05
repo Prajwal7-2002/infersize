@@ -175,3 +175,21 @@ def test_cli_commands():
     ctx_res = runner.invoke(app, ["max-context", "-m", "qwen2.5-7b", "-g", "rtx3050", "-q", "int4"])
     assert ctx_res.exit_code == 0
     assert "Maximum Supported Context Length" in ctx_res.stdout
+
+
+def test_gguf_precisions_include_block_scales():
+    from infersize.analytics.vram import get_bytes_per_param
+
+    assert get_bytes_per_param("q8_0") == 8.5 / 8
+    assert get_bytes_per_param("q4_0") == 4.5 / 8
+    assert get_bytes_per_param("Q4_K_M") == 4.85 / 8
+
+
+def test_gpu_presets_corrected_values():
+    from infersize.hardware.specs import get_gpu_profile
+
+    assert get_gpu_profile("rtx3050").memory_bandwidth_gb_s == 168.0  # 14 Gbps x 96-bit
+    assert get_gpu_profile("rtx4060").fp16_tflops == 60.0  # dense, not the sparsity figure
+    h100 = get_gpu_profile("h100-80gb")
+    assert h100.int4_tflops == h100.int8_tflops  # Hopper has no INT4 Tensor Cores
+    assert get_gpu_profile("m3-max-128gb").fp16_tflops < 20

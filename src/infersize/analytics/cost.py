@@ -5,9 +5,9 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from infersize.analytics.vram import (
-    BYTES_PER_PARAM,
     calculate_kv_cache_bytes_per_token,
     estimate_vram_usage,
+    get_bytes_per_param,
 )
 from infersize.hardware.pricing import get_hourly_rate
 from infersize.hardware.specs import GPU_PRESETS, GPUProfile
@@ -42,6 +42,10 @@ class CostEstimateResult(BaseModel):
         description="Assumed memory bus utilization efficiency (e.g. 0.80)"
     )
     effective_bandwidth_gb_s: float = Field(description="Effective achievable bandwidth in GB/s")
+    decode_overhead_ms: float = Field(
+        default=0.0,
+        description="Fixed per-step cost added to the bandwidth time (kernel launches, sampling)",
+    )
 
     time_per_step_ms: float = Field(description="Time taken per decode step in milliseconds")
     time_per_output_token_ms: float = Field(
@@ -79,11 +83,22 @@ def estimate_serving_cost(
     provider: str = "runpod",
     custom_hourly_rate: float | None = None,
     bus_efficiency: float = 0.80,
+    bandwidth_gb_s: float | None = None,
+    decode_overhead_ms: float = 0.0,
 ) -> CostEstimateResult:
     """Analytically calculate decode throughput, TPOT, and cost per million tokens.
 
     Models the autoregressive decode phase as memory-bandwidth bound:
-    Step Time = (Weight Bytes + KV Cache Bytes) / Effective Bandwidth
+    Step Time = (Weight Bytes + KV Cache Bytes) / Effective Bandwidth + Overhead
+
+    With the default ``decode_overhead_ms=0`` the result is a *ceiling*: real engines are
+    slower, most visibly for small models where fixed per-token costs dominate (measured
+    on an RTX 3050 laptop with Ollama: 50% of the ceiling for a 0.5B model, ~80% for 3B).
+
+    Args:
+        bandwidth_gb_s: Override the preset's peak memory bandwidth (laptop GPUs often ship
+            with lower memory clocks than the vendor maximum).
+        decode_overhead_ms: Fixed time added to every decode step.
     """
     tp = max(1, tensor_parallel)
     vram_res = estimate_vram_usage(
@@ -107,7 +122,7 @@ def estimate_serving_cost(
     # For dense models, active params == total params. For MoE models,
     # decode streams top-K active routed experts per token.
     active_params = model.calculate_active_parameters()
-    bytes_per_param = BYTES_PER_PARAM.get(precision.lower(), 2.0)
+    bytes_per_param = get_bytes_per_param(precision)
     # Per GPU active weight slice
     weight_bytes = int((active_params * bytes_per_param) / tp)
 
@@ -117,7 +132,12 @@ def estimate_serving_cost(
 
     total_dram_step = weight_bytes + kv_bytes
 
-    eff_bw_gb_s = gpu.memory_bandwidth_gb_s * bus_efficiency
+    peak_bw_gb_s = bandwidth_gb_s if bandwidth_gb_s is not None else gpu.memory_bandwidth_gb_s
+    if peak_bw_gb_s <= 0:
+        raise ValueError("bandwidth_gb_s must be positive")
+    if decode_overhead_ms < 0:
+        raise ValueError("decode_overhead_ms must be >= 0")
+    eff_bw_gb_s = peak_bw_gb_s * bus_efficiency
     eff_bw_bytes_s = eff_bw_gb_s * 1e9
 
     if not vram_res.fits_in_vram:
@@ -137,9 +157,10 @@ def estimate_serving_cost(
             weight_bytes_per_step=weight_bytes,
             kv_bytes_per_step=kv_bytes,
             total_dram_bytes_per_step=total_dram_step,
-            memory_bandwidth_gb_s=gpu.memory_bandwidth_gb_s,
+            memory_bandwidth_gb_s=peak_bw_gb_s,
             bus_efficiency=bus_efficiency,
             effective_bandwidth_gb_s=round(eff_bw_gb_s, 1),
+            decode_overhead_ms=decode_overhead_ms,
             time_per_step_ms=0.0,
             time_per_output_token_ms=0.0,
             tokens_per_sec_per_user=0.0,
@@ -152,7 +173,7 @@ def estimate_serving_cost(
         )
 
     # Time per decode step in seconds: DRAM bytes / Effective Bandwidth
-    step_time_s = total_dram_step / eff_bw_bytes_s
+    step_time_s = total_dram_step / eff_bw_bytes_s + decode_overhead_ms / 1000.0
     step_time_ms = step_time_s * 1000.0
 
     # User-perceived latency (TPOT)
@@ -186,9 +207,10 @@ def estimate_serving_cost(
         weight_bytes_per_step=weight_bytes,
         kv_bytes_per_step=kv_bytes,
         total_dram_bytes_per_step=total_dram_step,
-        memory_bandwidth_gb_s=gpu.memory_bandwidth_gb_s,
+        memory_bandwidth_gb_s=peak_bw_gb_s,
         bus_efficiency=bus_efficiency,
         effective_bandwidth_gb_s=round(eff_bw_gb_s, 1),
+        decode_overhead_ms=decode_overhead_ms,
         time_per_step_ms=round(step_time_ms, 2),
         time_per_output_token_ms=round(tpot_ms, 2),
         tokens_per_sec_per_user=round(user_tok_s, 1),

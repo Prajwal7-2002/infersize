@@ -89,3 +89,22 @@
 - Wired `--hf`, `--config`, and `--hf-token` across all CLI commands (`vram`, `compare`, `cost`, `report`, `max-batch`, `max-context`).
 - Added PyPI Trusted Publisher automated workflow in `.github/workflows/release.yml`.
 - Added 8 unit tests in `tests/test_hf_loader.py`. Test suite expanded to 36 tests with 95% code coverage and zero Ruff warnings.
+
+## 2026-11-05: v0.3.2 - Corrected GPU specs and validation against real hardware
+
+An independent check found infersize predicting 910 tok/s for a 4-bit Qwen2.5-0.5B on an RTX 3050 laptop,
+where Ollama measures ~164-200 tok/s.
+
+- **Wrong specs**: `rtx3050` listed 288 GB/s and 72 TFLOPS; the 6 GB laptop part is 96-bit GDDR6, at most
+  168 GB/s (14 Gbps), and ~24 dense FP16 TFLOPS. `rtx4060` used the sparsity figure (120 -> 60). H100/H200
+  claimed INT4 Tensor Core throughput Hopper does not have. Apple M3 Max FP16 was 3-7x too high.
+- **Silent fallback**: unknown precision names (`-q q4`) were treated as FP16. Now an error on every command.
+- **Real formats**: added `q4_k_m` (4.85 bits/weight), `q4_0` (4.5), `q8_0` (8.5), including block scales.
+- **Model**: `--overhead-ms` adds a fixed per-token cost; `--bandwidth` overrides a laptop's memory bandwidth.
+  The default output is now labelled a ceiling. Added the `qwen2.5-3b` preset.
+- **Measured** (RTX 3050 laptop, Ollama 0.35.1, q4_k_m, median of 5): 0.5B 163.8, 1.5B 88.4, 3B 53.4 tok/s =
+  37% / 62% / 75% of the ceiling. A fixed ~4.3 ms/token explains the gap: fitted on two models it predicts the
+  third within -10% / 0% / +4% (leave-one-out). This unit's memory clock is 10.8 Gbps (~130 GB/s peak,
+  121.5 GB/s measured copy), below NVIDIA's maximum.
+- **Tests**: `tests/test_validation.py` (ceiling never below measured; leave-one-out error < 15%) with the raw
+  data in `tests/data/measured_rtx3050_ollama.json`; spec, precision and CLI error tests. 60 tests.

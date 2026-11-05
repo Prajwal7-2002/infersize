@@ -210,6 +210,18 @@ MODEL_PRESETS: dict[str, ModelArch] = {
         vocab_size=151936,
         tie_word_embeddings=True,
     ),
+    "qwen2.5-3b": ModelArch(
+        name="qwen2.5-3b",
+        family="qwen",
+        num_layers=36,
+        hidden_size=2048,
+        intermediate_size=11008,
+        num_attention_heads=16,
+        num_key_value_heads=2,
+        head_dim=128,
+        vocab_size=151936,
+        tie_word_embeddings=True,
+    ),
     "qwen2.5-7b": ModelArch(
         name="qwen2.5-7b",
         family="qwen",

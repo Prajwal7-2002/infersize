@@ -1,6 +1,6 @@
 """infersize: Analytical Performance Modeling & VRAM Capacity Planner for LLM Serving."""
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 __author__ = "Prajwal Pujari"
 
 from infersize.analytics.vram import VRAMEstimateResult, estimate_vram_usage

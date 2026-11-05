@@ -34,6 +34,8 @@ from infersize.analytics.cost import (
 from infersize.analytics.report import generate_architecture_report
 from infersize.analytics.speculative import estimate_speculative_decoding
 from infersize.analytics.vram import (
+    BYTES_PER_KV_ELEM,
+    BYTES_PER_PARAM,
     estimate_vram_usage,
     find_max_concurrent_batch_size,
     find_max_context_length,
@@ -50,6 +52,18 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console(legacy_windows=False)
+
+
+def _check_quant(value: str) -> str:
+    if value.lower() not in BYTES_PER_PARAM:
+        raise typer.BadParameter(f"choose one of: {', '.join(BYTES_PER_PARAM)}")
+    return value
+
+
+def _check_kv(value: str) -> str:
+    if value.lower() not in BYTES_PER_KV_ELEM:
+        raise typer.BadParameter(f"choose one of: {', '.join(BYTES_PER_KV_ELEM)}")
+    return value
 
 
 def _resolve_model(
@@ -103,10 +117,18 @@ def vram(
     ),
     gpu: str = typer.Option("rtx3050", "--gpu", "-g", help="GPU hardware profile preset"),
     quant: str = typer.Option(
-        "fp16", "--quant", "-q", help="Weight precision (fp16, int8, fp8, int4, bitnet)"
+        "fp16",
+        "--quant",
+        "-q",
+        help="Weight precision (fp16, bf16, int8, fp8, int4, q8_0, q4_k_m, q4_0, bitnet)",
+        callback=_check_quant,
     ),
     kv_cache: str = typer.Option(
-        "fp16", "--kv-cache", "-k", help="KV cache dtype (fp16, int8, fp8, int4)"
+        "fp16",
+        "--kv-cache",
+        "-k",
+        help="KV cache dtype (fp16, int8, fp8, int4)",
+        callback=_check_kv,
     ),
     batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent serving batch size"),
     context: int = typer.Option(2048, "--context", "-c", help="Sequence context length in tokens"),
@@ -227,10 +249,18 @@ def compare(
     context: int = typer.Option(2048, "--context", "-c", help="Sequence context length in tokens"),
     batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent serving batch size"),
     quant: str = typer.Option(
-        "fp16", "--quant", "-q", help="Weight precision (fp16, int8, fp8, int4, bitnet)"
+        "fp16",
+        "--quant",
+        "-q",
+        help="Weight precision (fp16, bf16, int8, fp8, int4, q8_0, q4_k_m, q4_0, bitnet)",
+        callback=_check_quant,
     ),
     kv_cache: str = typer.Option(
-        "fp16", "--kv-cache", "-k", help="KV cache dtype (fp16, int8, fp8, int4)"
+        "fp16",
+        "--kv-cache",
+        "-k",
+        help="KV cache dtype (fp16, int8, fp8, int4)",
+        callback=_check_kv,
     ),
     gpus: str = typer.Option(
         "",
@@ -361,10 +391,18 @@ def cost(
     ),
     gpu: str = typer.Option("rtx4090", "--gpu", "-g", help="GPU hardware profile preset"),
     quant: str = typer.Option(
-        "fp16", "--quant", "-q", help="Weight precision (fp16, int8, fp8, int4, bitnet)"
+        "fp16",
+        "--quant",
+        "-q",
+        help="Weight precision (fp16, bf16, int8, fp8, int4, q8_0, q4_k_m, q4_0, bitnet)",
+        callback=_check_quant,
     ),
     kv_cache: str = typer.Option(
-        "fp16", "--kv-cache", "-k", help="KV cache dtype (fp16, int8, fp8, int4)"
+        "fp16",
+        "--kv-cache",
+        "-k",
+        help="KV cache dtype (fp16, int8, fp8, int4)",
+        callback=_check_kv,
     ),
     batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent serving batch size"),
     context: int = typer.Option(2048, "--context", "-c", help="Sequence context length in tokens"),
@@ -382,6 +420,16 @@ def cost(
         False,
         "--compare-clouds",
         help="Compare hourly cost and $/1M tokens across all cloud providers",
+    ),
+    bandwidth: float | None = typer.Option(
+        None,
+        "--bandwidth",
+        help="Override peak memory bandwidth in GB/s (laptop GPUs often run slower memory)",
+    ),
+    overhead_ms: float = typer.Option(
+        0.0,
+        "--overhead-ms",
+        help="Fixed per-token cost in ms added to the bandwidth time (0 = pure ceiling)",
     ),
     hf: bool = typer.Option(
         False, "--hf", help="Fetch model architecture directly from Hugging Face Hub"
@@ -473,17 +521,23 @@ def cost(
         console.print()
         return
 
-    res = estimate_serving_cost(
-        model=model_spec,
-        gpu=gpu_spec,
-        precision=quant,
-        kv_cache_dtype=kv_cache,
-        batch_size=batch_size,
-        context_tokens=context,
-        tensor_parallel=tensor_parallel,
-        provider=provider,
-        custom_hourly_rate=rate,
-    )
+    try:
+        res = estimate_serving_cost(
+            model=model_spec,
+            gpu=gpu_spec,
+            precision=quant,
+            kv_cache_dtype=kv_cache,
+            batch_size=batch_size,
+            context_tokens=context,
+            tensor_parallel=tensor_parallel,
+            provider=provider,
+            custom_hourly_rate=rate,
+            bandwidth_gb_s=bandwidth,
+            decode_overhead_ms=overhead_ms,
+        )
+    except ValueError as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise typer.Exit(code=1)
 
     if json_output:
         console.print_json(res.model_dump_json(indent=2))
@@ -529,10 +583,15 @@ def cost(
         f"{res.total_dram_bytes_per_step / 1e9:.2f} GB",
         f"Weights: {res.weight_bytes_per_step / 1e9:.2f} GB, KV-Cache: {res.kv_bytes_per_step / 1e9:.2f} GB",
     )
+    ceiling_note = (
+        " (bandwidth ceiling; real engines are slower, see --overhead-ms)"
+        if res.decode_overhead_ms == 0
+        else f" (incl. {res.decode_overhead_ms:g} ms fixed overhead per token)"
+    )
     table.add_row(
         "[yellow]Time Per Output Token (TPOT)[/]",
         f"{res.time_per_output_token_ms:.1f} ms",
-        f"{res.tokens_per_sec_per_user:.1f} tok/s per user stream",
+        f"{res.tokens_per_sec_per_user:.1f} tok/s per user stream{ceiling_note}",
     )
     table.add_row(
         "[yellow]Aggregate Throughput[/]",
@@ -602,10 +661,18 @@ def report(
     ),
     gpu: str = typer.Option("rtx4090", "--gpu", "-g", help="Target GPU hardware profile preset"),
     quant: str = typer.Option(
-        "fp16", "--quant", "-q", help="Weight precision (fp16, int8, fp8, int4, bitnet)"
+        "fp16",
+        "--quant",
+        "-q",
+        help="Weight precision (fp16, bf16, int8, fp8, int4, q8_0, q4_k_m, q4_0, bitnet)",
+        callback=_check_quant,
     ),
     kv_cache: str = typer.Option(
-        "fp16", "--kv-cache", "-k", help="KV cache dtype (fp16, int8, fp8, int4)"
+        "fp16",
+        "--kv-cache",
+        "-k",
+        help="KV cache dtype (fp16, int8, fp8, int4)",
+        callback=_check_kv,
     ),
     batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent serving batch size"),
     context: int = typer.Option(2048, "--context", "-c", help="Sequence context length in tokens"),
@@ -692,9 +759,9 @@ def report(
 def max_batch(
     model: str = typer.Option("qwen2.5-7b", "--model", "-m"),
     gpu: str = typer.Option("rtx3050", "--gpu", "-g"),
-    quant: str = typer.Option("int4", "--quant", "-q"),
+    quant: str = typer.Option("int4", "--quant", "-q", callback=_check_quant),
     context: int = typer.Option(2048, "--context", "-c"),
-    kv_cache: str = typer.Option("fp16", "--kv-cache", "-k"),
+    kv_cache: str = typer.Option("fp16", "--kv-cache", "-k", callback=_check_kv),
     tensor_parallel: int = typer.Option(1, "--tp", help="Tensor parallelism degree"),
     hf: bool = typer.Option(
         False, "--hf", help="Fetch model architecture directly from Hugging Face Hub"
@@ -737,9 +804,9 @@ def max_batch(
 def max_context(
     model: str = typer.Option("qwen2.5-7b", "--model", "-m"),
     gpu: str = typer.Option("rtx3050", "--gpu", "-g"),
-    quant: str = typer.Option("int4", "--quant", "-q"),
+    quant: str = typer.Option("int4", "--quant", "-q", callback=_check_quant),
     batch_size: int = typer.Option(1, "--batch-size", "-b"),
-    kv_cache: str = typer.Option("fp16", "--kv-cache", "-k"),
+    kv_cache: str = typer.Option("fp16", "--kv-cache", "-k", callback=_check_kv),
     tensor_parallel: int = typer.Option(1, "--tp", help="Tensor parallelism degree"),
     hf: bool = typer.Option(
         False, "--hf", help="Fetch model architecture directly from Hugging Face Hub"
@@ -853,10 +920,16 @@ def spec(
     ),
     gpu: str = typer.Option("a100-80gb", "--gpu", "-g", help="Target GPU hardware profile"),
     target_quant: str = typer.Option(
-        "fp16", "--target-quant", help="Quantization for target model weights"
+        "fp16",
+        "--target-quant",
+        help="Quantization for target model weights",
+        callback=_check_quant,
     ),
     draft_quant: str = typer.Option(
-        "fp16", "--draft-quant", help="Quantization for draft model weights"
+        "fp16",
+        "--draft-quant",
+        help="Quantization for draft model weights",
+        callback=_check_quant,
     ),
     kv_cache: str = typer.Option("fp16", "--kv-cache", help="KV-cache data type"),
     batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent request streams"),
@@ -982,7 +1055,9 @@ def fit(
     model: str = typer.Option(
         "qwen2.5-7b", "--model", "-m", help="Model preset name or Hugging Face repository ID"
     ),
-    quant: str = typer.Option("fp16", "--quant", "-q", help="Weight quantization precision"),
+    quant: str = typer.Option(
+        "fp16", "--quant", "-q", help="Weight quantization precision", callback=_check_quant
+    ),
     kv_cache: str = typer.Option("fp16", "--kv-cache", help="KV-cache data type"),
     batch_size: int = typer.Option(1, "--batch-size", "-b", help="Concurrent request streams"),
     context: int = typer.Option(2048, "--context", "-c", help="Sequence length (prompt + output)"),

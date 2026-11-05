@@ -5,7 +5,7 @@
 # infersize ⚡
 
 > **Analytical Performance Modeling, Cloud Cost (\$/1M tokens) & VRAM Capacity Planner for LLM Serving.**  
-> Predict exact memory footprints, decode throughput, KV-cache scaling, multi-GPU comparison matrices, and cloud serving costs before downloading a model or spending thousands on GPU clusters.
+> Predict memory footprints, decode-speed ceilings, KV-cache scaling, multi-GPU comparison matrices, and cloud serving costs before downloading a model or spending thousands on GPU clusters.
 
 [![CI](https://github.com/Prajwal7-2002/infersize/actions/workflows/ci.yml/badge.svg)](https://github.com/Prajwal7-2002/infersize/actions)
 [![PyPI version](https://img.shields.io/pypi/v/infersize.svg?color=blue)](https://pypi.org/project/infersize/)
@@ -26,7 +26,7 @@ Every engineer deploying local or cloud LLMs asks the same questions:
 * *"How many concurrent users can an 80GB A100 serve at 4,000 context length before crashing with Out-Of-Memory (OOM)?"*
 
 Renting GPU clusters just to discover a model runs out of memory or costs 10x more than closed APIs burns engineering time and cloud budgets.  
-**`infersize` solves this with rigorous analytical physics**: it computes exact parameter bytes, KV-cache tensor dimensions, memory-bandwidth bound decode throughput, and cloud unit economics in **< 10 milliseconds on any CPU**.
+**`infersize` solves this with rigorous analytical physics**: it computes parameter bytes, KV-cache tensor dimensions, memory-bandwidth bound decode throughput, and cloud unit economics in **< 10 milliseconds on any CPU**.
 
 ---
 
@@ -35,7 +35,8 @@ Renting GPU clusters just to discover a model runs out of memory or costs 10x mo
 * **Rigorous Mathematical Accounting**: Derives exact parameter counts and tensor bytes directly from architectural specs (layers, hidden dims, GQA heads, SwiGLU FFNs).
 * **Multi-GPU Comparison Matrix (`infersize compare`)**: Evaluates a model workload across candidate accelerators side-by-side, flags OOM deficits, and identifies the **Right-Sized / Cost-Effective GPU** vs **Peak Throughput GPU**.
 * **Cloud Cost & TCO Engine (`infersize cost`)**:
-  * Models memory-bandwidth decode throughput ($\text{tok/s} = \frac{B \cdot \text{BW} \cdot \eta}{W + KV}$).
+  * Models memory-bandwidth decode throughput ($\text{tok/s} = \frac{B \cdot \text{BW} \cdot \eta}{W + KV}$). By default this is a **ceiling**; add `--overhead-ms` for a realistic estimate (see [Validation](#-validation-against-real-hardware)).
+  * GGUF formats (`q4_k_m`, `q4_0`, `q8_0`) with their real bits per weight, and `--bandwidth` to override a laptop GPU's memory bandwidth.
   * Computes Time Per Output Token (TPOT latency in ms).
   * Direct cloud unit economics: **\$ / 1 Million Tokens** and monthly 24/7 dedicated hosting cost.
   * Built-in pricing for **RunPod**, **Lambda Labs**, **AWS EC2**, and **Google Cloud (GCP)**.
@@ -167,7 +168,7 @@ Output:
 ╭──────────┬──────────┬──────────┬──────────┬──────────┬───────────┬───────────┬───────────┬──────────────────────────────╮
 │ GPU      │     VRAM │ Required │ Util (%) │ Headroom │ Max Batch │ Bandwidth │ Status    │ Sizing Verdict               │
 ├──────────┼──────────┼──────────┼──────────┼──────────┼───────────┼───────────┼───────────┼──────────────────────────────┤
-│ rtx3050  │   6.0 GB │  16.1 GB │   100.0% │ -10.1 GB │    0 reqs │  288 GB/s │ ✘ OOM     │ Deficit of 10.1 GB.          │
+│ rtx3050  │   6.0 GB │  16.1 GB │   100.0% │ -10.1 GB │    0 reqs │  168 GB/s │ ✘ OOM     │ Deficit of 10.1 GB.          │
 │ rtx4060  │   8.0 GB │  16.2 GB │   100.0% │  -8.2 GB │    0 reqs │  272 GB/s │ ✘ OOM     │ Deficit of 8.2 GB.           │
 │ rtx4090  │  24.0 GB │  16.4 GB │    68.2% │  +7.6 GB │   62 reqs │ 1008 GB/s │ ⭐ OPTIMAL│ Right-sized: Optimal cost.   │
 │ t4       │  16.0 GB │  16.2 GB │   100.0% │  -0.2 GB │    0 reqs │  320 GB/s │ ✘ OOM     │ Deficit of 0.2 GB.           │
@@ -306,6 +307,41 @@ infersize gpus
 
 ---
 
+## 🔬 Validation Against Real Hardware
+
+Measured on an **RTX 3050 6 GB laptop** with **Ollama 0.35.1** (llama.cpp), 4-bit GGUF models (`q4_k_m`), single user,
+median of 5 runs, every layer on the GPU. Raw data: [`tests/data/measured_rtx3050_ollama.json`](tests/data/measured_rtx3050_ollama.json).
+
+| Model | `infersize` ceiling | Measured | Measured as % of ceiling | With `--overhead-ms` (leave-one-out) |
+| :--- | ---: | ---: | ---: | ---: |
+| Qwen2.5 0.5B | 444 tok/s | 164 tok/s | 37% | 148 tok/s (−10%) |
+| Qwen2.5 1.5B | 143 tok/s | 88 tok/s | 62% | 88 tok/s (0%) |
+| Qwen2.5 3B (coder) | 72 tok/s | 53 tok/s | 75% | 55 tok/s (+4%) |
+
+* **The default output is an upper bound.** It counts only the time to stream the weights and KV-cache from
+  memory. Real engines also pay a fixed cost per token (kernel launches, sampling, synchronisation), which
+  matters most for small models.
+* **That fixed cost was ~4.3 ms per token** for Ollama on this laptop. The last column fits it on two of the
+  three models and predicts the third, so each prediction is out of sample. Use
+  `infersize cost ... --overhead-ms 4.3` as a starting point for llama.cpp-based engines on consumer GPUs,
+  or measure your own engine with [servebench](https://github.com/Prajwal7-2002/servebench) and fit it the same way.
+* **Laptop memory bandwidth varies.** The `rtx3050` preset uses NVIDIA's maximum (168 GB/s); the tested unit
+  runs its memory at 10.8 Gbps (~130 GB/s peak, 121.5 GB/s measured copy). Find yours with
+  `nvidia-smi --query-gpu=clocks.max.memory --format=csv` (bandwidth = 2 × clock MHz × bus bits / 8 / 1000) and pass `--bandwidth`.
+* `tests/test_validation.py` keeps these checks in CI: the ceiling must never fall below a measured speed,
+  and the leave-one-out error must stay under 15%.
+
+### Limitations
+* One GPU and one engine are validated so far; other presets use vendor specs, not measurements.
+* Decode only: prefill time (TTFT) is not modelled.
+* Large batches are treated as memory-bound; at high batch sizes decode becomes compute-bound, so aggregate
+  throughput above roughly the GPU's ridge point (`infersize gpus`) is optimistic.
+* VRAM estimates do not include engine-specific buffers (CUDA graphs, workspace), so leave headroom.
+* v0.3.1 and earlier listed the RTX 3050 laptop at 288 GB/s, some GPUs at their sparsity TFLOPS, and silently
+  treated unknown precision names as FP16. Fixed in v0.3.2.
+
+---
+
 ## 📐 The Mathematical Mechanics
 
 ### 1. KV-Cache Memory Equation
@@ -319,7 +355,8 @@ $$\text{KV Bytes per Token} = 2 \times L \times H_{\text{kv}} \times D \times B$
 $$B_{\max} = \left\lfloor \frac{\text{VRAM}_{\text{usable}} - \text{Memory}_{\text{weights}} - \text{Memory}_{\text{act}}}{\text{KV Bytes per Token} \times S} \right\rfloor$$
 
 ### 3. Memory-Bandwidth Bound Decode Throughput
-$$\text{Aggregate Throughput (tokens/sec)} = \frac{B \times \text{Memory Bandwidth (GB/s)} \times 10^9 \times \eta}{W_{\text{bytes}} + \text{KV}_{\text{bytes}}}$$
+$$T_{\text{step}} = \frac{W_{\text{bytes}} + \text{KV}_{\text{bytes}}}{\text{Memory Bandwidth} \times \eta} + T_{\text{overhead}}, \qquad \text{Aggregate tok/s} = \frac{B}{T_{\text{step}}}$$
+* $\eta$: bus efficiency (default 0.8); $T_{\text{overhead}}$: fixed per-token cost (`--overhead-ms`, default 0 = ceiling)
 
 ### 4. Unit Cost per 1 Million Tokens (\$/1M tokens)
 $$\text{Cost per 1M Tokens} = \frac{\text{Hourly Rental Rate}}{\text{Tokens per Hour}} \times 1,000,000$$

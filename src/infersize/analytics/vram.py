@@ -9,7 +9,9 @@ from pydantic import BaseModel, Field
 from infersize.hardware.specs import GPUProfile
 from infersize.models.specs import ModelArch
 
-PrecisionType = Literal["fp32", "fp16", "bf16", "int8", "fp8", "int4", "fp4", "bitnet"]
+PrecisionType = Literal[
+    "fp32", "fp16", "bf16", "int8", "fp8", "int4", "fp4", "bitnet", "q8_0", "q4_k_m", "q4_0"
+]
 KVCacheDtype = Literal["fp16", "bf16", "int8", "fp8", "int4"]
 
 BYTES_PER_PARAM: dict[str, float] = {
@@ -21,7 +23,33 @@ BYTES_PER_PARAM: dict[str, float] = {
     "int4": 0.5,
     "fp4": 0.5,
     "bitnet": 0.25,
+    # GGUF formats as used by llama.cpp / Ollama / LM Studio, including per-block scales.
+    "q8_0": 8.5 / 8,  # 32 int8 weights + one fp16 scale per block
+    "q4_0": 4.5 / 8,  # 32 4-bit weights + one fp16 scale per block
+    "q4_k_m": 4.85 / 8,  # mixed Q4_K/Q6_K; ~4.85 bits/weight averaged over a model
 }
+
+
+def get_bytes_per_param(precision: str) -> float:
+    """Bytes per weight for a precision name; raises on unknown names instead of guessing."""
+    key = precision.lower()
+    if key not in BYTES_PER_PARAM:
+        raise ValueError(
+            f"Unknown weight precision '{precision}'. Choose one of: {', '.join(BYTES_PER_PARAM)}"
+        )
+    return BYTES_PER_PARAM[key]
+
+
+def get_bytes_per_kv_elem(kv_cache_dtype: str) -> float:
+    """Bytes per KV-cache element; raises on unknown names instead of guessing."""
+    key = kv_cache_dtype.lower()
+    if key not in BYTES_PER_KV_ELEM:
+        raise ValueError(
+            f"Unknown KV-cache dtype '{kv_cache_dtype}'. "
+            f"Choose one of: {', '.join(BYTES_PER_KV_ELEM)}"
+        )
+    return BYTES_PER_KV_ELEM[key]
+
 
 BYTES_PER_KV_ELEM: dict[str, float] = {
     "fp16": 2.0,
@@ -76,7 +104,7 @@ def calculate_kv_cache_bytes_per_token(
     (Compresses Key and Value into a single low-rank latent vector + decoupled RoPE key).
     """
     dtype_key = kv_cache_dtype.lower().strip()
-    bytes_per_elem = BYTES_PER_KV_ELEM.get(dtype_key, 2.0)
+    bytes_per_elem = get_bytes_per_kv_elem(dtype_key)
 
     if model.is_mla:
         latent_dim = (model.kv_lora_rank or 512) + (model.qk_rope_head_dim or 64)
@@ -95,7 +123,7 @@ def calculate_weight_memory_gb(
 ) -> float:
     """Calculate physical VRAM footprint in GB for model weights per GPU."""
     prec_key = precision.lower().strip()
-    bytes_per_param = BYTES_PER_PARAM.get(prec_key, 2.0)
+    bytes_per_param = get_bytes_per_param(prec_key)
     total_params = model.calculate_total_parameters()
     total_bytes = (total_params * bytes_per_param) / max(1, tensor_parallel)
     return total_bytes / 1e9
@@ -170,7 +198,7 @@ def estimate_vram_usage(
     utilization_pct = min(100.0, (total_required / gpu.vram_gb) * 100.0)
 
     kv_bytes_token = calculate_kv_cache_bytes_per_token(model, kv_cache_dtype)
-    bytes_per_param = BYTES_PER_PARAM.get(precision.lower(), 2.0)
+    bytes_per_param = get_bytes_per_param(precision)
     compression_ratio = 2.0 / bytes_per_param
 
     return VRAMEstimateResult(

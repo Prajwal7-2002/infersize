@@ -12,7 +12,9 @@ class GPUProfile(BaseModel):
     display_name: str = Field(description="Human-readable device name")
     vram_gb: float = Field(description="Total addressable physical VRAM in Gigabytes")
     memory_bandwidth_gb_s: float = Field(description="Peak theoretical memory bandwidth in GB/s")
-    fp16_tflops: float = Field(description="Peak FP16 / BF16 Tensor Core compute in TFLOPS")
+    fp16_tflops: float = Field(
+        description="Peak dense (no sparsity) FP16/BF16 Tensor Core TFLOPS, FP16 accumulate"
+    )
     int8_tflops: float = Field(description="Peak INT8 Tensor Core compute in TOPS")
     int4_tflops: float = Field(description="Peak INT4 Tensor Core compute in TOPS")
     cuda_overhead_gb: float = Field(
@@ -37,16 +39,29 @@ class GPUProfile(BaseModel):
 
 
 # Standard Industry Hardware Presets
+#
+# Bandwidth is the peak memory bandwidth from the vendor spec. Compute is peak *dense*
+# Tensor Core throughput (no 2:4 sparsity), FP16 accumulate, at boost clock.
+# Notes on presets that are easy to get wrong:
+# - rtx3050: 6 GB laptop part (GA107, 16 SMs, 96-bit GDDR6). 168 GB/s is NVIDIA's maximum
+#   (14 Gbps); laptop makers often ship lower memory clocks (one tested unit: 10.8 Gbps =
+#   130 GB/s). Check yours: nvidia-smi --query-gpu=clocks.max.memory --format=csv, then
+#   bandwidth = 2 x clock(MHz) x 96 / 8 / 1000 GB/s, and pass it with --bandwidth.
+#   Tensor TFLOPS depend on the laptop's power limit (boost clock); 24 assumes ~1.5 GHz.
+# - rtx4060: 60 TFLOPS dense (120 is the sparsity figure).
+# - h100/h200: Hopper has no INT4 Tensor Cores; int4 runs at the INT8 rate.
+# - Apple M3 Max: GPU FP16 runs at the FP32 rate (30-core 10.6, 40-core 14.2 TFLOPS);
+#   there is no faster INT8/INT4 GPU path.
 GPU_PRESETS: dict[str, GPUProfile] = {
     # Consumer & Edge GPUs
     "rtx3050": GPUProfile(
         name="rtx3050",
         display_name="NVIDIA GeForce RTX 3050 Laptop (6GB)",
         vram_gb=6.0,
-        memory_bandwidth_gb_s=288.0,
-        fp16_tflops=72.0,
-        int8_tflops=144.0,
-        int4_tflops=288.0,
+        memory_bandwidth_gb_s=168.0,
+        fp16_tflops=24.0,
+        int8_tflops=48.0,
+        int4_tflops=96.0,
         cuda_overhead_gb=0.6,
     ),
     "rtx3060": GPUProfile(
@@ -64,9 +79,9 @@ GPU_PRESETS: dict[str, GPUProfile] = {
         display_name="NVIDIA GeForce RTX 4060 (8GB)",
         vram_gb=8.0,
         memory_bandwidth_gb_s=272.0,
-        fp16_tflops=120.0,
-        int8_tflops=240.0,
-        int4_tflops=480.0,
+        fp16_tflops=60.0,
+        int8_tflops=121.0,
+        int4_tflops=242.0,
         cuda_overhead_gb=0.7,
     ),
     "rtx4080": GPUProfile(
@@ -137,7 +152,7 @@ GPU_PRESETS: dict[str, GPUProfile] = {
         memory_bandwidth_gb_s=3350.0,
         fp16_tflops=989.0,
         int8_tflops=1978.0,
-        int4_tflops=3956.0,
+        int4_tflops=1978.0,
         cuda_overhead_gb=1.4,
     ),
     "h200-141gb": GPUProfile(
@@ -147,7 +162,7 @@ GPU_PRESETS: dict[str, GPUProfile] = {
         memory_bandwidth_gb_s=4800.0,
         fp16_tflops=989.0,
         int8_tflops=1978.0,
-        int4_tflops=3956.0,
+        int4_tflops=1978.0,
         cuda_overhead_gb=1.5,
     ),
     # Apple Silicon Unified Memory
@@ -156,9 +171,9 @@ GPU_PRESETS: dict[str, GPUProfile] = {
         display_name="Apple M3 Max Unified Memory (36GB)",
         vram_gb=36.0,
         memory_bandwidth_gb_s=300.0,
-        fp16_tflops=50.0,
-        int8_tflops=100.0,
-        int4_tflops=200.0,
+        fp16_tflops=10.6,
+        int8_tflops=10.6,
+        int4_tflops=10.6,
         cuda_overhead_gb=1.0,
     ),
     "m3-max-128gb": GPUProfile(
@@ -166,9 +181,9 @@ GPU_PRESETS: dict[str, GPUProfile] = {
         display_name="Apple M3 Max Unified Memory (128GB)",
         vram_gb=128.0,
         memory_bandwidth_gb_s=400.0,
-        fp16_tflops=100.0,
-        int8_tflops=200.0,
-        int4_tflops=400.0,
+        fp16_tflops=14.2,
+        int8_tflops=14.2,
+        int4_tflops=14.2,
         cuda_overhead_gb=1.5,
     ),
 }

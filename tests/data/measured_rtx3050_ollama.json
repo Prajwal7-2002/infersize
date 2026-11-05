@@ -1,0 +1,13 @@
+{
+  "description": "Single-user decode speed measured with Ollama's own eval timer (median of 5 runs, 128 generated tokens, temperature 0, num_ctx 2048, short prompt). All layers on GPU (ollama ps: 100% GPU).",
+  "date": "2026-11-05",
+  "hardware": "NVIDIA GeForce RTX 3050 6GB Laptop GPU (memory clock 5411 MHz = ~130 GB/s peak; device-to-device copy measured 121.5 GB/s), AMD Ryzen 5 6600H",
+  "engine": "Ollama 0.35.1 (llama.cpp)",
+  "precision": "q4_k_m",
+  "context_tokens": 256,
+  "runs": [
+    {"preset": "qwen2.5-0.5b", "ollama_model": "qwen2.5:0.5b", "file_mb": 397, "decode_tok_s": 163.8},
+    {"preset": "qwen2.5-1.5b", "ollama_model": "qwen2.5:1.5b", "file_mb": 986, "decode_tok_s": 88.4},
+    {"preset": "qwen2.5-3b", "ollama_model": "qwen2.5-coder:3b", "file_mb": 1929, "decode_tok_s": 53.4}
+  ]
+}

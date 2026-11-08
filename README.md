@@ -9,6 +9,7 @@
 
 [![CI](https://github.com/Prajwal7-2002/infersize/actions/workflows/ci.yml/badge.svg)](https://github.com/Prajwal7-2002/infersize/actions)
 [![PyPI version](https://img.shields.io/pypi/v/infersize.svg?color=blue)](https://pypi.org/project/infersize/)
+[![HuggingFace Space](https://img.shields.io/badge/🤗_HuggingFace-infersize--studio-yellow)](https://huggingface.co/spaces/prajwalpujari16/infersize)
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://infersize.streamlit.app/)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://prajwal7-2002.github.io/infersize/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)

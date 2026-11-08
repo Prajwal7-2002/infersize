@@ -1,0 +1,1068 @@
+"""Build standalone, zero-dependency Static Web Studio for Infersize."""
+
+import json
+import shutil
+from pathlib import Path
+
+from infersize.hardware.pricing import CLOUD_GPU_PRICING, DEFAULT_HOURLY_RATES
+from infersize.hardware.specs import GPU_PRESETS
+from infersize.models.specs import MODEL_PRESETS
+
+
+def generate_html() -> str:
+    # 1. Prepare JSON payloads from Python specs
+    models_data = {}
+    for k, m in MODEL_PRESETS.items():
+        models_data[k] = {
+            "name": m.name,
+            "family": m.family,
+            "num_layers": m.num_layers,
+            "hidden_size": m.hidden_size,
+            "num_attention_heads": m.num_attention_heads,
+            "num_key_value_heads": m.num_key_value_heads,
+            "head_dim": m.head_dim or (m.hidden_size // m.num_attention_heads),
+            "vocab_size": m.vocab_size,
+            "total_params": m.calculate_total_parameters(),
+            "active_params": m.calculate_active_parameters(),
+            "is_moe": m.is_moe,
+            "num_experts": m.num_experts,
+            "num_experts_per_tok": m.num_experts_per_tok,
+            "is_mla": m.is_mla,
+            "kv_lora_rank": m.kv_lora_rank or 512,
+            "qk_rope_head_dim": 64,
+        }
+
+    gpus_data = {}
+    for k, g in GPU_PRESETS.items():
+        gpus_data[k] = {
+            "id": k,
+            "name": g.name,
+            "vram_gb": g.vram_gb,
+            "memory_bandwidth_gb_s": g.memory_bandwidth_gb_s,
+            "fp16_tflops": g.fp16_tflops,
+            "category": "Consumer Edge" if "rtx" in k else ("Apple Silicon" if "m3" in k else "Enterprise Data Center"),
+        }
+
+    pricing_data = CLOUD_GPU_PRICING
+    default_rates = DEFAULT_HOURLY_RATES
+
+    models_json_str = json.dumps(models_data)
+    gpus_json_str = json.dumps(gpus_data)
+    pricing_json_str = json.dumps(pricing_data)
+    default_rates_json_str = json.dumps(default_rates)
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>infersize ⚡ Interactive LLM Capacity Planner & GPU Sizing Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg: #0b0f19;
+      --card-bg: #111827;
+      --card-border: #1f293d;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent: #10b981;
+      --accent-glow: rgba(16, 185, 129, 0.15);
+      --cyan: #06b6d4;
+      --purple: #8b5cf6;
+      --rose: #f43f5e;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }}
+
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      background: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      line-height: 1.5;
+      padding-bottom: 60px;
+    }}
+
+    /* Top Nav */
+    header {{
+      background: rgba(17, 24, 39, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--card-border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 14px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }}
+    .logo-container {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }}
+    .logo-icon {{
+      background: linear-gradient(135deg, #10b981, #06b6d4);
+      color: #0b0f19;
+      font-weight: 900;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+    }}
+    .brand-title {{
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }}
+    .brand-subtitle {{
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }}
+    .nav-links {{
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }}
+    .nav-links a {{
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: color 0.15s ease;
+    }}
+    .nav-links a:hover {{ color: var(--accent); }}
+    .badge-live {{
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }}
+
+    /* Main Container */
+    .container {{
+      max-width: 1320px;
+      margin: 24px auto;
+      padding: 0 20px;
+    }}
+
+    /* Hero */
+    .hero {{
+      margin-bottom: 24px;
+      padding: 20px 24px;
+      background: linear-gradient(180deg, rgba(17, 24, 39, 0.9) 0%, rgba(15, 23, 42, 0.5) 100%);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }}
+    .hero h1 {{
+      font-size: 1.4rem;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }}
+    .hero p {{
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      max-width: 800px;
+    }}
+
+    /* Layout Grid */
+    .workbench {{
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 24px;
+    }}
+    @media (max-width: 1024px) {{
+      .workbench {{ grid-template-columns: 1fr; }}
+    }}
+
+    /* Sidebar Controls */
+    .sidebar {{
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      align-self: flex-start;
+      position: sticky;
+      top: 80px;
+    }}
+    .control-group {{
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }}
+    .control-label {{
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      justify-content: space-between;
+    }}
+    .control-value {{
+      color: var(--cyan);
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }}
+    select, input[type="range"], input[type="number"] {{
+      background: #0b0f19;
+      color: var(--text-main);
+      border: 1px solid var(--card-border);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-family: var(--font-sans);
+      font-size: 0.88rem;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }}
+    select:focus {{ border-color: var(--cyan); }}
+    input[type="range"] {{
+      accent-color: var(--cyan);
+      padding: 0;
+      cursor: pointer;
+    }}
+
+    /* Main Dashboard Area */
+    .dashboard {{
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }}
+
+    /* Metric Cards Grid */
+    .metrics-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 16px;
+    }}
+    .metric-card {{
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+    }}
+    .metric-card::before {{
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+      background: var(--accent);
+    }}
+    .metric-card.cyan::before {{ background: var(--cyan); }}
+    .metric-card.purple::before {{ background: var(--purple); }}
+    .metric-card.rose::before {{ background: var(--rose); }}
+
+    .metric-title {{
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }}
+    .metric-val {{
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: #fff;
+      font-family: var(--font-mono);
+    }}
+    .metric-sub {{
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-family: var(--font-mono);
+    }}
+
+    /* Tabs */
+    .tabs-header {{
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 12px;
+    }}
+    .tab-btn {{
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }}
+    .tab-btn:hover {{
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }}
+    .tab-btn.active {{
+      color: #fff;
+      background: var(--card-bg);
+      border-color: var(--card-border);
+    }}
+
+    .tab-pane {{
+      display: none;
+      animation: fadeIn 0.2s ease-in-out;
+    }}
+    .tab-pane.active {{
+      display: block;
+    }}
+    @keyframes fadeIn {{
+      from {{ opacity: 0; transform: translateY(4px); }}
+      to {{ opacity: 1; transform: translateY(0); }}
+    }}
+
+    /* VRAM Stack Bar */
+    .vram-bar-container {{
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }}
+    .vram-bar-title {{
+      font-size: 0.85rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+    }}
+    .vram-bar-track {{
+      background: #0b0f19;
+      height: 28px;
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      width: 100%;
+      border: 1px solid #1f293d;
+    }}
+    .vram-seg {{
+      height: 100%;
+      transition: width 0.3s ease;
+      position: relative;
+    }}
+    .vram-seg-weights {{ background: #3b82f6; }}
+    .vram-seg-kv {{ background: #10b981; }}
+    .vram-seg-act {{ background: #f59e0b; }}
+    .vram-seg-overhead {{ background: #64748b; }}
+
+    .vram-legend {{
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }}
+    .legend-item {{
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }}
+    .legend-color {{
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }}
+
+    /* Data Tables */
+    .table-card {{
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      overflow: hidden;
+    }}
+    .table-scroll {{
+      overflow-x: auto;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.85rem;
+    }}
+    th {{
+      background: #0d1526;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      letter-spacing: 0.05em;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--card-border);
+    }}
+    td {{
+      padding: 12px 16px;
+      border-bottom: 1px solid #162033;
+      color: var(--text-main);
+    }}
+    tr:last-child td {{ border-bottom: none; }}
+    tr:hover td {{ background: rgba(255, 255, 255, 0.02); }}
+
+    .badge-fit {{
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+    }}
+    .badge-oom {{
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+    }}
+
+    /* Speculative Decoding Panel */
+    .spec-grid {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }}
+    @media (max-width: 768px) {{
+      .spec-grid {{ grid-template-columns: 1fr; }}
+    }}
+
+    /* RFC Box */
+    .rfc-box {{
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 16px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      white-space: pre-wrap;
+      color: #cbd5e1;
+      max-height: 400px;
+      overflow-y: auto;
+    }}
+    .btn-copy {{
+      background: var(--accent);
+      color: #0b0f19;
+      font-weight: 700;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      margin-top: 10px;
+      transition: opacity 0.15s ease;
+    }}
+    .btn-copy:hover {{ opacity: 0.9; }}
+
+    /* Callout */
+    .callout {{
+      background: rgba(6, 182, 212, 0.08);
+      border-left: 3px solid var(--cyan);
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      font-size: 0.82rem;
+      color: #cbd5e1;
+      margin-bottom: 16px;
+    }}
+  </style>
+</head>
+<body>
+
+  <!-- Top Header Navigation -->
+  <header>
+    <div class="logo-container">
+      <div class="logo-icon">⚡</div>
+      <div>
+        <div class="brand-title">infersize</div>
+        <div class="brand-subtitle">LLM Capacity Planning & Hardware Sizing Studio</div>
+      </div>
+    </div>
+    <div class="nav-links">
+      <span class="badge-live">v0.3.2</span>
+      <a href="https://github.com/Prajwal7-2002/infersize" target="_blank">
+        <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        GitHub
+      </a>
+      <a href="https://pypi.org/project/infersize/" target="_blank">
+        <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0L1.5 6v12L12 24l10.5-6V6L12 0zm0 2.22l8.25 4.71v3.29L12 5.51 3.75 10.22V6.93L12 2.22zM3 11.59l8.25-4.71v9.42L3 21.01V11.59zm18 0v9.42l-8.25-4.71V6.88l8.25 4.71z"/></svg>
+        PyPI
+      </a>
+      <a href="https://infersize.streamlit.app/" target="_blank">Streamlit Cloud Studio ↗</a>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Hero Banner -->
+    <div class="hero">
+      <div>
+        <h1>Pre-Flight LLM Capacity Planning & Hardware Sizer</h1>
+        <p>Analytical memory wall modeling, KV-cache sizing (MHA/GQA/DeepSeek MLA), multi-GPU fit matrices, and real-time cloud TCO economics computed with zero latency directly in your browser.</p>
+      </div>
+      <div>
+        <a href="https://github.com/Prajwal7-2002/infersize" target="_blank" style="text-decoration:none;">
+          <button style="background:#1e293b; color:#f1f5f9; border:1px solid #334155; padding:8px 14px; border-radius:6px; font-weight:600; cursor:pointer;">
+            pip install infersize
+          </button>
+        </a>
+      </div>
+    </div>
+
+    <div class="workbench">
+      <!-- Left Controls Sidebar -->
+      <aside class="sidebar">
+        <div class="control-group">
+          <div class="control-label">Model Architecture</div>
+          <select id="modelSelect"></select>
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">Weight Precision</div>
+          <select id="precisionSelect">
+            <option value="fp16">FP16 / BF16 (16-bit) [2.0 B/param]</option>
+            <option value="int8">INT8 / FP8 (8-bit) [1.0 B/param]</option>
+            <option value="q4_k_m" selected>GGUF Q4_K_M (~4.85-bit) [0.61 B/param]</option>
+            <option value="int4">INT4 / AWQ / GPTQ (4-bit) [0.50 B/param]</option>
+            <option value="bitnet">BitNet 1.58b (Ternary) [0.25 B/param]</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">KV-Cache Data Type</div>
+          <select id="kvDtypeSelect">
+            <option value="fp16" selected>FP16 / BF16 (2.0 Bytes/elem)</option>
+            <option value="fp8">FP8 / INT8 (1.0 Byte/elem)</option>
+            <option value="int4">INT4 (0.5 Bytes/elem)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Context Length</span>
+            <span class="control-value" id="contextVal">4,096</span>
+          </div>
+          <input type="range" id="contextRange" min="512" max="131072" step="512" value="4096">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Concurrency (Streams)</span>
+            <span class="control-value" id="batchVal">4</span>
+          </div>
+          <input type="range" id="batchRange" min="1" max="64" step="1" value="4">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Tensor Parallelism (TP)</span>
+            <span class="control-value" id="tpVal">TP = 1</span>
+          </div>
+          <select id="tpSelect">
+            <option value="1" selected>TP = 1 (Single GPU)</option>
+            <option value="2">TP = 2 (2x GPUs)</option>
+            <option value="4">TP = 4 (4x GPUs)</option>
+            <option value="8">TP = 8 (8x GPUs Node)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">Cloud Provider (Cost)</div>
+          <select id="cloudSelect">
+            <option value="runpod" selected>RunPod Community Cloud</option>
+            <option value="lambda">Lambda Labs</option>
+            <option value="aws">AWS EC2 (On-Demand)</option>
+            <option value="gcp">Google Cloud Platform (GCP)</option>
+          </select>
+        </div>
+      </aside>
+
+      <!-- Right Dashboard Content -->
+      <main class="dashboard">
+        <!-- Top Metrics Cards -->
+        <div class="metrics-grid">
+          <div class="metric-card cyan">
+            <div class="metric-title">Total VRAM Required</div>
+            <div class="metric-val" id="totalVramVal">-- GB</div>
+            <div class="metric-sub" id="perGpuVramVal">Per-GPU: -- GB</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">Weights Footprint</div>
+            <div class="metric-val" id="weightsVal">-- GB</div>
+            <div class="metric-sub" id="paramsCountVal">-- Billion params</div>
+          </div>
+          <div class="metric-card purple">
+            <div class="metric-title">KV-Cache Memory</div>
+            <div class="metric-val" id="kvVal">-- GB</div>
+            <div class="metric-sub" id="kvPerTokenVal">-- KB / token</div>
+          </div>
+          <div class="metric-card rose">
+            <div class="metric-title">Roofline Generation</div>
+            <div class="metric-val" id="throughputVal">-- tok/s</div>
+            <div class="metric-sub" id="costTokensVal">-- / 1M tokens</div>
+          </div>
+        </div>
+
+        <!-- Stacked VRAM Allocation Bar -->
+        <div class="vram-bar-container">
+          <div class="vram-bar-title">
+            <span>Memory Allocation Breakdown</span>
+            <span id="vramBarTotal">-- GB</span>
+          </div>
+          <div class="vram-bar-track">
+            <div class="vram-seg vram-seg-weights" id="barWeights" style="width: 50%;"></div>
+            <div class="vram-seg vram-seg-kv" id="barKv" style="width: 30%;"></div>
+            <div class="vram-seg vram-seg-act" id="barAct" style="width: 10%;"></div>
+            <div class="vram-seg vram-seg-overhead" id="barOverhead" style="width: 10%;"></div>
+          </div>
+          <div class="vram-legend">
+            <div class="legend-item"><div class="legend-color vram-seg-weights"></div> Model Weights</div>
+            <div class="legend-item"><div class="legend-color vram-seg-kv"></div> Paged KV-Cache</div>
+            <div class="legend-item"><div class="legend-color vram-seg-act"></div> Activation Peak</div>
+            <div class="legend-item"><div class="legend-color vram-seg-overhead"></div> CUDA Runtime Overhead</div>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="tabs-header">
+          <button class="tab-btn active" onclick="switchTab('tabGpu')">Multi-GPU Matrix (Fit / OOM)</button>
+          <button class="tab-btn" onclick="switchTab('tabCost')">Cloud TCO Economics ($/1M Tokens)</button>
+          <button class="tab-btn" onclick="switchTab('tabSpec')">Speculative Decoding Sizer</button>
+          <button class="tab-btn" onclick="switchTab('tabRfc')">Architecture RFC Export</button>
+        </div>
+
+        <!-- Tab 1: Multi-GPU Matrix -->
+        <div id="tabGpu" class="tab-pane active">
+          <div id="mlaCallout" class="callout" style="display:none;">
+            🚀 <strong>DeepSeek Multi-Head Latent Attention (MLA) Detected:</strong> KV-cache is compressed by factorizing Key/Value heads into a low-rank latent vector (d_c=512), reducing per-token KV memory by up to <strong>93%</strong> compared to traditional Multi-Head Attention!
+          </div>
+          <div class="table-card">
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Target Accelerator</th>
+                    <th>VRAM per Card</th>
+                    <th>Cluster VRAM (TP)</th>
+                    <th>Fit Status</th>
+                    <th>VRAM Headroom / Deficit</th>
+                    <th>Utilization</th>
+                    <th>Min GPUs Required</th>
+                  </tr>
+                </thead>
+                <tbody id="gpuTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Cloud TCO -->
+        <div id="tabCost" class="tab-pane">
+          <div class="table-card">
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Cloud Provider</th>
+                    <th>GPU Configuration</th>
+                    <th>Hourly Rental Rate</th>
+                    <th>Cluster Hourly Cost</th>
+                    <th>Est. Throughput</th>
+                    <th>Cost per 1M Output Tokens</th>
+                    <th>Serving Viability</th>
+                  </tr>
+                </thead>
+                <tbody id="costTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: Speculative Decoding -->
+        <div id="tabSpec" class="tab-pane">
+          <div class="spec-grid">
+            <div class="table-card" style="padding:16px;">
+              <h3 style="font-size:1rem; margin-bottom:12px;">Speculative Decoding Pair Configuration</h3>
+              <div class="control-group" style="margin-bottom:12px;">
+                <label class="control-label">Target Model (Verification Engine)</label>
+                <select id="specTargetSelect"></select>
+              </div>
+              <div class="control-group" style="margin-bottom:12px;">
+                <label class="control-label">Draft Model (Speculation Engine)</label>
+                <select id="specDraftSelect"></select>
+              </div>
+              <div class="control-group">
+                <label class="control-label">Leviathan Speculative Length (γ)</label>
+                <input type="range" id="gammaRange" min="2" max="8" value="5">
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Draft tokens proposed per forward step: <span id="gammaVal" style="color:var(--cyan); font-weight:700;">5</span></div>
+              </div>
+            </div>
+
+            <div class="table-card" style="padding:16px;">
+              <h3 style="font-size:1rem; margin-bottom:12px;">Estimated Speculative Speedup</h3>
+              <div id="specMetricsBody"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 4: Architecture RFC -->
+        <div id="tabRfc" class="tab-pane">
+          <div class="table-card" style="padding:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <h3 style="font-size:1rem;">Production Architecture Capacity RFC</h3>
+              <button class="btn-copy" onclick="copyRfc()">Copy Markdown RFC</button>
+            </div>
+            <div class="rfc-box" id="rfcContent"></div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <script>
+    // Embedded Data Payload
+    const MODELS = {models_json_str};
+    const GPUS = {gpus_json_str};
+    const PRICING = {pricing_json_str};
+    const DEFAULT_RATES = {default_rates_json_str};
+
+    const BYTES_PER_PARAM = {{
+      'fp16': 2.0, 'int8': 1.0, 'q4_k_m': 4.85 / 8, 'int4': 0.5, 'bitnet': 0.25
+    }};
+    const BYTES_PER_KV = {{
+      'fp16': 2.0, 'fp8': 1.0, 'int4': 0.5
+    }};
+
+    // DOM Elements
+    const modelSelect = document.getElementById('modelSelect');
+    const precisionSelect = document.getElementById('precisionSelect');
+    const kvDtypeSelect = document.getElementById('kvDtypeSelect');
+    const contextRange = document.getElementById('contextRange');
+    const contextVal = document.getElementById('contextVal');
+    const batchRange = document.getElementById('batchRange');
+    const batchVal = document.getElementById('batchVal');
+    const tpSelect = document.getElementById('tpSelect');
+    const cloudSelect = document.getElementById('cloudSelect');
+
+    // Populate Models Dropdown
+    for (const [key, m] of Object.entries(MODELS)) {{
+      const opt = document.createElement('option');
+      opt.value = key;
+      const bParams = (m.total_params / 1e9).toFixed(2);
+      opt.textContent = `${{m.name}} (${{bParams}}B) ${{m.is_mla ? '[MLA]' : ''}} ${{m.is_moe ? '[MoE]' : ''}}`;
+      if (key === 'qwen2.5-7b') opt.selected = true;
+      modelSelect.appendChild(opt);
+    }}
+
+    // Populate Speculative Dropdowns
+    const specTarget = document.getElementById('specTargetSelect');
+    const specDraft = document.getElementById('specDraftSelect');
+    for (const [key, m] of Object.entries(MODELS)) {{
+      const opt1 = document.createElement('option');
+      opt1.value = key;
+      opt1.textContent = `${{m.name}} (${{(m.total_params / 1e9).toFixed(1)}}B)`;
+      if (key === 'llama3-70b') opt1.selected = true;
+      specTarget.appendChild(opt1);
+
+      const opt2 = document.createElement('option');
+      opt2.value = key;
+      opt2.textContent = `${{m.name}} (${{(m.total_params / 1e9).toFixed(1)}}B)`;
+      if (key === 'llama3-8b') opt2.selected = true;
+      specDraft.appendChild(opt2);
+    }}
+
+    function calculate() {{
+      const modelKey = modelSelect.value;
+      const model = MODELS[modelKey];
+      const precision = precisionSelect.value;
+      const kvDtype = kvDtypeSelect.value;
+      const context = parseInt(contextRange.value);
+      const batch = parseInt(batchRange.value);
+      const tp = parseInt(tpSelect.value);
+      const cloud = cloudSelect.value;
+
+      // Update text displays
+      contextVal.textContent = context.toLocaleString();
+      batchVal.textContent = batch.toString();
+      document.getElementById('tpVal').textContent = `TP = ${{tp}}`;
+
+      // 1. Calculate Weights VRAM
+      const bytesPerW = BYTES_PER_PARAM[precision] || 2.0;
+      const totalWeightBytes = model.total_params * bytesPerW;
+      const totalWeightGb = totalWeightBytes / 1e9;
+      const weightGbPerGpu = totalWeightGb / tp;
+
+      // 2. Calculate KV Cache VRAM
+      const bytesPerKv = BYTES_PER_KV[kvDtype] || 2.0;
+      let kvBytesPerTok = 0;
+      if (model.is_mla) {{
+        // DeepSeek MLA: compressed latent dimension + decoupled RoPE
+        kvBytesPerTok = model.num_layers * (model.kv_lora_rank + model.qk_rope_head_dim) * bytesPerKv;
+      }} else {{
+        kvBytesPerTok = 2 * model.num_layers * model.num_key_value_heads * model.head_dim * bytesPerKv;
+      }}
+      const totalKvBytes = kvBytesPerTok * context * batch;
+      const totalKvGb = totalKvBytes / 1e9;
+      const kvGbPerGpu = model.is_mla ? totalKvGb : (totalKvGb / tp);
+
+      // 3. Activation & Overhead
+      const actGbPerGpu = (batch * context * model.hidden_size * 2 * 2.0) / 1e9 / tp * 0.2; // approx peak activation
+      const overheadGb = 0.8; // CUDA context & PyTorch runtime
+
+      const totalVramPerGpu = weightGbPerGpu + kvGbPerGpu + actGbPerGpu + overheadGb;
+      const totalClusterVram = totalVramPerGpu * tp;
+
+      // Update Top Metrics Cards
+      document.getElementById('totalVramVal').textContent = `${{totalClusterVram.toFixed(2)}} GB`;
+      document.getElementById('perGpuVramVal').textContent = `Per-GPU: ${{totalVramPerGpu.toFixed(2)}} GB`;
+
+      document.getElementById('weightsVal').textContent = `${{totalWeightGb.toFixed(2)}} GB`;
+      document.getElementById('paramsCountVal').textContent = `${{(model.total_params / 1e9).toFixed(2)}}B parameters`;
+
+      document.getElementById('kvVal').textContent = `${{totalKvGb.toFixed(2)}} GB`;
+      document.getElementById('kvPerTokenVal').textContent = `${{(kvBytesPerTok / 1024).toFixed(2)}} KB / token`;
+
+      // Representative Throughput on H100
+      const activeParams = model.active_params || model.total_params;
+      const h100Bandwidth = 3350.0; // GB/s
+      const theoreticalTokS = (h100Bandwidth / (activeParams * bytesPerW / 1e9)) * Math.min(batch, 8);
+      const realisticTokS = Math.min(theoreticalTokS * 0.65, 350.0 * tp);
+      document.getElementById('throughputVal').textContent = `~${{realisticTokS.toFixed(0)}} tok/s`;
+
+      const h100Price = (PRICING[cloud] && PRICING[cloud]['h100-80gb']) ? PRICING[cloud]['h100-80gb'] : 2.89;
+      const costPer1M = (h100Price * tp / (realisticTokS * 3600)) * 1000000;
+      document.getElementById('costTokensVal').textContent = `$${{costPer1M.toFixed(3)}} / 1M tokens`;
+
+      // Update Allocation Stack Bar
+      const bW = (weightGbPerGpu / totalVramPerGpu) * 100;
+      const bKv = (kvGbPerGpu / totalVramPerGpu) * 100;
+      const bAct = (actGbPerGpu / totalVramPerGpu) * 100;
+      const bOv = (overheadGb / totalVramPerGpu) * 100;
+      document.getElementById('barWeights').style.width = `${{bW}}%`;
+      document.getElementById('barKv').style.width = `${{bKv}}%`;
+      document.getElementById('barAct').style.width = `${{bAct}}%`;
+      document.getElementById('barOverhead').style.width = `${{bOv}}%`;
+      document.getElementById('vramBarTotal').textContent = `${{totalVramPerGpu.toFixed(2)}} GB / card (Cluster: ${{totalClusterVram.toFixed(2)}} GB)`;
+
+      // MLA Callout
+      document.getElementById('mlaCallout').style.display = model.is_mla ? 'block' : 'none';
+
+      // 4. Update GPU Matrix Table
+      const gpuBody = document.getElementById('gpuTableBody');
+      gpuBody.innerHTML = '';
+      for (const [gKey, gpu] of Object.entries(GPUS)) {{
+        const clusterVram = gpu.vram_gb * tp;
+        const headroom = clusterVram - totalClusterVram;
+        const fit = totalVramPerGpu <= (gpu.vram_gb * 0.95);
+        const minGpusNeeded = Math.ceil(totalClusterVram / (gpu.vram_gb * 0.95));
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td><strong>${{gpu.name}}</strong> <span style="font-size:0.75rem; color:var(--text-muted); display:block;">${{gpu.category}}</span></td>
+          <td>${{gpu.vram_gb.toFixed(1)}} GB</td>
+          <td>${{clusterVram.toFixed(1)}} GB</td>
+          <td><span class="${{fit ? 'badge-fit' : 'badge-oom'}}">${{fit ? 'FIT' : 'OOM'}}</span></td>
+          <td style="font-family:var(--font-mono); color:${{fit ? '#34d399' : '#f87171'}}">${{headroom >= 0 ? '+' + headroom.toFixed(2) : headroom.toFixed(2)}} GB</td>
+          <td>${{((totalClusterVram / clusterVram) * 100).toFixed(1)}}%</td>
+          <td><strong>${{minGpusNeeded}}x GPU${{minGpusNeeded > 1 ? 's' : ''}}</strong></td>
+        `;
+        gpuBody.appendChild(row);
+      }}
+
+      // 5. Update Cloud Table
+      const costBody = document.getElementById('costTableBody');
+      costBody.innerHTML = '';
+      const providers = ['runpod', 'lambda', 'aws', 'gcp'];
+      for (const p of providers) {{
+        const pRates = PRICING[p] || {{}};
+        for (const [gId, rate] of Object.entries(pRates)) {{
+          const gpu = GPUS[gId];
+          if (!gpu) continue;
+          const clusterVram = gpu.vram_gb * tp;
+          const fit = totalVramPerGpu <= (gpu.vram_gb * 0.95);
+          const clusterRate = rate * tp;
+          const bw = gpu.memory_bandwidth_gb_s * tp;
+          const speed = Math.min((bw / (activeParams * bytesPerW / 1e9)) * Math.min(batch, 8) * 0.65, 400.0 * tp);
+          const cost1M = fit ? (clusterRate / (speed * 3600)) * 1000000 : 0.0;
+
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td><strong style="text-transform:capitalize;">${{p}}</strong></td>
+            <td>${{gpu.name}} (x${{tp}})</td>
+            <td style="font-family:var(--font-mono);">$${{rate.toFixed(2)}}/hr</td>
+            <td style="font-family:var(--font-mono); font-weight:700;">$${{clusterRate.toFixed(2)}}/hr</td>
+            <td style="font-family:var(--font-mono);">${{fit ? speed.toFixed(0) + ' tok/s' : '--'}}</td>
+            <td style="font-family:var(--font-mono); color:${{fit ? '#34d399' : 'var(--text-muted)'}}; font-weight:700;">${{fit ? '$' + cost1M.toFixed(3) : 'OOM'}}</td>
+            <td><span class="${{fit ? 'badge-fit' : 'badge-oom'}}">${{fit ? 'VIABLE' : 'OOM'}}</span></td>
+          `;
+          costBody.appendChild(row);
+        }}
+      }}
+
+      // 6. Update RFC Preview
+      updateRfc(model, precision, kvDtype, context, batch, tp, totalClusterVram, totalVramPerGpu, minGpusNeededFor4090);
+      updateSpeculative();
+    }}
+
+    function updateSpeculative() {{
+      const tKey = specTarget.value;
+      const dKey = specDraft.value;
+      const gamma = parseInt(document.getElementById('gammaRange').value);
+      document.getElementById('gammaVal').textContent = gamma.toString();
+
+      const tModel = MODELS[tKey];
+      const dModel = MODELS[dKey];
+
+      const tBytes = tModel.total_params * 0.5 / 1e9; // INT4
+      const dBytes = dModel.total_params * 0.5 / 1e9;
+      const combined = tBytes + dBytes + 2.0;
+
+      const alphaEst = 0.72; // typical speculative acceptance rate
+      const speedupEst = (1 - Math.pow(alphaEst, gamma + 1)) / ((1 - alphaEst) * (1 + gamma * (dModel.total_params / tModel.total_params)));
+
+      const specBox = document.getElementById('specMetricsBody');
+      specBox.innerHTML = `
+        <div style="margin-bottom:12px;">
+          <div style="font-size:0.8rem; color:var(--text-muted);">Combined INT4 Memory Footprint:</div>
+          <div style="font-size:1.6rem; font-weight:800; color:var(--cyan); font-family:var(--font-mono);">${{combined.toFixed(2)}} GB</div>
+        </div>
+        <div style="margin-bottom:12px;">
+          <div style="font-size:0.8rem; color:var(--text-muted);">Leviathan Speedup Factor:</div>
+          <div style="font-size:1.6rem; font-weight:800; color:#34d399; font-family:var(--font-mono);">~${{speedupEst.toFixed(2)}}x Acceleration</div>
+        </div>
+        <p style="font-size:0.8rem; color:var(--text-muted);">Draft model (${{dModel.name}}) proposes ${{gamma}} tokens per step; Target model (${{tModel.name}}) verifies in a single batched forward pass.</p>
+      `;
+    }}
+
+    function updateRfc(model, precision, kvDtype, context, batch, tp, totalClusterVram, totalVramPerGpu) {{
+      const rfc = `# Architecture Capacity RFC: Serving ${{model.name}}
+
+## 1. Executive Workload Specification
+- Model: ${{model.name}} (${{(model.total_params / 1e9).toFixed(2)}}B parameters)
+- Target Precision: ${{precision.toUpperCase()}}
+- KV-Cache Format: ${{kvDtype.toUpperCase()}}
+- Context Horizon: ${{context.toLocaleString()}} tokens
+- Target Concurrency: ${{batch}} active concurrent streams
+- Tensor Parallelism: TP = ${{tp}}
+
+## 2. Memory Wall & Capacity Breakdown
+- Total Cluster VRAM Required: ${{totalClusterVram.toFixed(2)}} GB
+- Per-GPU VRAM Allocation: ${{totalVramPerGpu.toFixed(2)}} GB / card
+- Paged KV-Cache Memory: ${{((model.num_layers * 2 * (model.head_dim || 128) * model.num_key_value_heads * (BYTES_PER_KV[kvDtype] || 2) * context * batch) / 1e9).toFixed(2)}} GB
+
+## 3. Recommended Cluster Topology
+- Minimum Single-Node Fit: ${{Math.ceil(totalClusterVram / (80 * 0.95))}}x NVIDIA A100 (80GB) or ${{Math.ceil(totalClusterVram / (24 * 0.95))}}x NVIDIA RTX 4090 (24GB)
+- Sizing tool generated by infersize v0.3.2 (Prajwal Pujari)
+`;
+      document.getElementById('rfcContent').textContent = rfc;
+    }}
+
+    function copyRfc() {{
+      const text = document.getElementById('rfcContent').textContent;
+      navigator.clipboard.writeText(text).then(() => {{
+        alert("✓ Architecture RFC copied to clipboard!");
+      }});
+    }}
+
+    function switchTab(tabId) {{
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+    }}
+
+    // Event Listeners
+    [modelSelect, precisionSelect, kvDtypeSelect, contextRange, batchRange, tpSelect, cloudSelect].forEach(el => {{
+      el.addEventListener('input', calculate);
+    }});
+    [specTarget, specDraft, document.getElementById('gammaRange')].forEach(el => {{
+      el.addEventListener('input', updateSpeculative);
+    }});
+
+    // Initial Run
+    calculate();
+  </script>
+</body>
+</html>
+"""
+    return html_content
+
+
+def main():
+    root = Path(__file__).resolve().parent.parent
+    hf_dir = root / "hf_space"
+    docs_dir = root / "docs"
+
+    hf_dir.mkdir(parents=True, exist_ok=True)
+    docs_dir.mkdir(parents=True, exist_ok=True)
+
+    print("Compiling standalone Infersize Web Studio HTML...")
+    html_bundle = generate_html()
+
+    # 1. Write to hf_space/index.html
+    (hf_dir / "index.html").write_text(html_bundle, encoding="utf-8")
+    print(f"✓ Wrote Hugging Face Static Space: {hf_dir / 'index.html'}")
+
+    # 2. Write to docs/studio.html for GitHub Pages preview
+    (docs_dir / "studio.html").write_text(html_bundle, encoding="utf-8")
+    print(f"✓ Wrote GitHub Pages preview: {docs_dir / 'studio.html'}")
+
+    # 3. Write Space README with static SDK
+    space_readme = """---
+title: Infersize - LLM Capacity & Sizing Studio
+emoji: ⚡
+colorFrom: green
+colorTo: blue
+sdk: static
+pinned: false
+license: apache-2.0
+short_description: LLM VRAM capacity planning & GPU sizing studio.
+---
+
+# infersize ⚡ LLM Capacity & Sizing Studio
+
+Interactive pre-flight analytical performance modeling, multi-GPU comparison matrix, speculative decoding sizer, and cloud TCO ($/1M tokens) capacity planner.
+
+* **GitHub Repository:** [Prajwal7-2002/infersize](https://github.com/Prajwal7-2002/infersize)
+* **PyPI:** [`pip install infersize`](https://pypi.org/project/infersize/)
+* **Full Streamlit Cloud Studio:** [infersize.streamlit.app](https://infersize.streamlit.app/)
+* **Documentation:** [prajwal7-2002.github.io/infersize](https://prajwal7-2002.github.io/infersize/)
+* **Author:** Prajwal Pujari ([@Prajwal7-2002](https://github.com/Prajwal7-2002))
+"""
+    (hf_dir / "README.md").write_text(space_readme, encoding="utf-8")
+    print(f"✓ Wrote Space Dataset Card: {hf_dir / 'README.md'}")
+
+    # 4. Copy to Brain Artifact for instant viewing
+    artifact_path = Path(r"C:\Users\ADMIN\.gemini\antigravity\brain\b4bc2e58-a6e6-4dec-a3a6-5013100d2137\infersize_studio_preview.html")
+    shutil.copy2(hf_dir / "index.html", artifact_path)
+    print(f"✓ Copied to Artifact: {artifact_path}")
+
+    print("\n🎉 Infersize Static Studio successfully built and ready to deploy!")
+
+
+if __name__ == "__main__":
+    main()

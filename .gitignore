@@ -36,4 +36,5 @@ htmlcov/
 dist/
 site/
 .ruff_cache/
+hf_space/
 

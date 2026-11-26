@@ -60,11 +60,22 @@ def test_architecture_report_to_markdown():
     assert "## 2. Transformer Architecture & Parameter Accounting" in md
     assert "## 3. Physical VRAM Allocation Breakdown" in md
     assert "## 4. Multi-Accelerator Comparison Matrix" in md
-    assert "## 5. Decode Roofline Throughput & Cloud Unit Economics" in md
+    assert "## 5. Decode Roofline Throughput" in md
     assert "## 6. Actionable Procurement & Sizing Recommendation" in md
     assert "## 7. Mathematical & Analytical Foundations" in md
     assert "Optimal Right-Sized GPU" in md
-    assert "COST PER 1M TOKENS" in md
+    assert "COST PER 1M TOKENS" not in md
+    assert "Cross-Cloud Pricing Comparison" not in md
+
+    rep_with_rate = generate_architecture_report(
+        model=qwen_7b,
+        gpu=rtx4090,
+        precision="fp16",
+        batch_size=16,
+        context_tokens=2048,
+        custom_hourly_rate=0.44,
+    )
+    assert "COST PER 1M TOKENS" in rep_with_rate.to_markdown()
 
 
 def test_cli_report_output_file(tmp_path):

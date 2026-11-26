@@ -80,7 +80,7 @@ def estimate_serving_cost(
     batch_size: int = 1,
     context_tokens: int = 2048,
     tensor_parallel: int = 1,
-    provider: str = "runpod",
+    provider: str = "custom",
     custom_hourly_rate: float | None = None,
     bus_efficiency: float = 0.80,
     bandwidth_gb_s: float | None = None,
@@ -243,10 +243,11 @@ def compare_cloud_costs_for_workload(
     kv_cache_dtype: str = "fp16",
     batch_size: int = 1,
     context_tokens: int = 2048,
-    provider: str = "runpod",
+    provider: str = "custom",
     tensor_parallel: int = 1,
+    custom_hourly_rate: float | None = None,
 ) -> MultiGPUCostReport:
-    """Compare throughput, TPOT, and $/1M tokens across multiple GPU candidates."""
+    """Compare throughput, TPOT, and optional $/1M tokens across multiple GPU candidates."""
     if candidate_gpus is None:
         candidate_ids = ["rtx4090", "l4", "a100-40gb", "a100-80gb", "h100-80gb"]
         candidate_gpus = [GPU_PRESETS[gid] for gid in candidate_ids if gid in GPU_PRESETS]
@@ -262,11 +263,13 @@ def compare_cloud_costs_for_workload(
             context_tokens=context_tokens,
             tensor_parallel=tensor_parallel,
             provider=provider,
+            custom_hourly_rate=custom_hourly_rate,
         )
         results.append(res)
 
-    fitting = [r for r in results if r.fits_in_vram and r.cost_per_million_tokens_usd > 0]
-    lowest = min(fitting, key=lambda x: x.cost_per_million_tokens_usd) if fitting else None
+    fitting = [r for r in results if r.fits_in_vram]
+    priced = [r for r in fitting if r.cost_per_million_tokens_usd > 0]
+    lowest = min(priced, key=lambda x: x.cost_per_million_tokens_usd) if priced else None
     fastest = max(fitting, key=lambda x: x.aggregate_tokens_per_sec) if fitting else None
 
     return MultiGPUCostReport(

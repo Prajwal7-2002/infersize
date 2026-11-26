@@ -21,7 +21,6 @@ from infersize.analytics.vram import (
     VRAMEstimateResult,
     estimate_vram_usage,
 )
-from infersize.hardware.pricing import CLOUD_GPU_PRICING
 from infersize.hardware.specs import GPUProfile
 from infersize.models.specs import ModelArch
 
@@ -84,7 +83,6 @@ class ArchitectureReport(BaseModel):
             f"| **Concurrent Streams** | `Batch Size = {self.batch_size}` | Peak aggregate throughput across active requests |",
             f"| **Target Context Window** | `{self.context_tokens:,}` tokens | Maximum supported prompt + generation budget |",
             f"| **Tensor Parallelism (TP)** | `{self.tensor_parallel}` GPU(s) | Memory and parameters partitioned across cluster |",
-            f"| **Cloud Provider** | `{self.provider.upper()}` | Baseline rate: ${self.cost_estimate.total_cluster_hourly_usd:.2f}/hr |",
             "",
             "---",
             "",
@@ -127,9 +125,9 @@ class ArchitectureReport(BaseModel):
             "",
             "---",
             "",
-            "## 5. Decode Roofline Throughput & Cloud Unit Economics",
+            "## 5. Decode Roofline Throughput",
             "",
-            "Autoregressive generation performance and cloud hosting economics:",
+            "Autoregressive generation performance and optional unit economics:",
             "",
             "| Metric | Value | Physical & Financial Meaning |",
             "|:---|---:|:---|",
@@ -140,29 +138,16 @@ class ArchitectureReport(BaseModel):
             f"| **User Generation Speed** | **{self.cost_estimate.tokens_per_sec_per_user:.1f} tok/s** | User-perceived output streaming speed |",
             f"| **Aggregate Batch Throughput** | **{self.cost_estimate.aggregate_tokens_per_sec:.1f} tok/s** | Total throughput generated across all B={self.batch_size} streams |",
             f"| **Hourly Generation Capacity** | **{self.cost_estimate.tokens_per_hour:,.0f} tokens/hr** | Maximum token volume per continuous operating hour |",
-            f"| **Cluster Rental Cost** | **${self.cost_estimate.total_cluster_hourly_usd:.2f} / hr** | ${self.cost_estimate.hourly_rate_usd:.2f}/hr x {self.tensor_parallel} GPU(s) ({self.provider.upper()}) |",
-            f"| **COST PER 1M TOKENS** | **${self.cost_estimate.cost_per_million_tokens_usd:.4f}** | **Direct operational cost per million generated tokens** |",
-            f"| **24/7 Dedicated Monthly Cost** | **${self.cost_estimate.monthly_dedicated_cost_usd:.2f} / mo** | Baseline idle cloud rental cost (730 continuous hours) |",
-            "",
-            "### Cross-Cloud Pricing Comparison for " + f"`{self.gpu_name}`",
-            "",
-            "| Provider | Hourly Rate / GPU | Total Cluster / Hr | Cost / 1M Tokens | Monthly Dedicated (730h) |",
-            "|:---|---:|---:|---:|---:|",
         ]
 
-        gpu_id_key = self.gpu_id
-        for p_name in ["runpod", "lambda", "aws", "gcp"]:
-            p_rate = CLOUD_GPU_PRICING.get(p_name, {}).get(gpu_id_key)
-            if p_rate is not None:
-                p_cluster = p_rate * self.tensor_parallel
-                p_c1m = (
-                    (p_cluster / self.cost_estimate.tokens_per_hour) * 1e6
-                    if self.cost_estimate.tokens_per_hour > 0
-                    else 0.0
-                )
-                lines.append(
-                    f"| **{p_name.upper()}** | ${p_rate:.2f} | ${p_cluster:.2f} | **${p_c1m:.4f}** | ${p_cluster * 730:.2f} |"
-                )
+        if self.cost_estimate.hourly_rate_usd > 0:
+            lines.extend(
+                [
+                    f"| **Cluster Rental Cost** | **${self.cost_estimate.total_cluster_hourly_usd:.2f} / hr** | ${self.cost_estimate.hourly_rate_usd:.2f}/hr per GPU x {self.tensor_parallel} GPU(s) ({self.provider.upper()}) |",
+                    f"| **COST PER 1M TOKENS** | **${self.cost_estimate.cost_per_million_tokens_usd:.4f}** | **Direct operational cost per million generated tokens** |",
+                    f"| **24/7 Dedicated Monthly Cost** | **${self.cost_estimate.monthly_dedicated_cost_usd:.2f} / mo** | Baseline idle rental cost (730 continuous hours) |",
+                ]
+            )
 
         lines.extend(
             [
@@ -204,7 +189,7 @@ def generate_architecture_report(
     batch_size: int = 1,
     context_tokens: int = 2048,
     tensor_parallel: int = 1,
-    provider: str = "runpod",
+    provider: str = "custom",
     custom_hourly_rate: float | None = None,
 ) -> ArchitectureReport:
     """Generate a complete, publication-ready architectural capacity and sizing report."""
@@ -247,6 +232,7 @@ def generate_architecture_report(
         context_tokens=context_tokens,
         provider=provider,
         tensor_parallel=tensor_parallel,
+        custom_hourly_rate=custom_hourly_rate,
     )
 
     total_params = model.calculate_total_parameters()

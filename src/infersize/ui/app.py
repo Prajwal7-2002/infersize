@@ -81,7 +81,7 @@ def main():
         [
             "⚡ Multi-GPU VRAM & Capacity",
             "🚀 Speculative Decoding Sizer",
-            "💰 Cloud TCO & $/1M Tokens",
+            "⚡ Roofline Throughput & Unit Cost",
             "🖥️ Live Local Hardware Check",
         ],
     )
@@ -309,17 +309,26 @@ def main():
             language="bash",
         )
 
-    elif mode == "💰 Cloud TCO & $/1M Tokens":
-        st.title("💰 Cloud TCO & Unit Economics Sizer ($/1M Tokens)")
+    elif mode == "⚡ Roofline Throughput & Unit Cost":
+        st.title("⚡ Decode Roofline & User-Rate Unit Economics")
         st.markdown(
-            "Calculate memory-bandwidth decode throughput, TPOT latency, and $/1M tokens across RunPod, Lambda, AWS, and GCP."
+            "Calculate memory-bandwidth decode ceilings, TPOT latency, and optional $/1M tokens using your own hourly GPU rate."
         )
 
-        gpu_id = st.selectbox(
-            "Select Cloud Accelerator:",
-            list(GPU_PRESETS.keys()),
-            index=list(GPU_PRESETS.keys()).index("rtx4090"),
-        )
+        rate_col1, rate_col2 = st.columns(2)
+        with rate_col1:
+            gpu_id = st.selectbox(
+                "Select Accelerator:",
+                list(GPU_PRESETS.keys()),
+                index=list(GPU_PRESETS.keys()).index("rtx4090"),
+            )
+        with rate_col2:
+            user_rate = st.number_input(
+                "Hourly Rate per GPU ($/hr, optional — 0 omits cost):",
+                min_value=0.0,
+                value=0.0,
+                step=0.05,
+            )
         gpu_prof = get_gpu_profile(gpu_id)
 
         cost_res = estimate_serving_cost(
@@ -330,19 +339,26 @@ def main():
             batch_size=batch_sz,
             context_tokens=context_len,
             tensor_parallel=tp_degree,
+            custom_hourly_rate=user_rate if user_rate > 0 else None,
         )
 
         m1, m2, m3, m4 = st.columns(4)
         with m1:
-            st.metric("Unit Cost / 1M Tokens", f"${cost_res.cost_per_million_tokens_usd:.4f}")
+            st.metric(
+                "Unit Cost / 1M Tokens",
+                f"${cost_res.cost_per_million_tokens_usd:.4f}" if user_rate > 0 else "--",
+            )
         with m2:
             st.metric("TPOT Latency", f"{cost_res.time_per_output_token_ms:.1f} ms")
         with m3:
             st.metric("Throughput / Stream", f"{cost_res.tokens_per_sec_per_user:.1f} tok/s")
         with m4:
-            st.metric("Monthly 24/7 Hosting", f"${cost_res.monthly_dedicated_cost_usd:,.2f}")
+            st.metric(
+                "Monthly 24/7 Hosting",
+                f"${cost_res.monthly_dedicated_cost_usd:,.2f}" if user_rate > 0 else "--",
+            )
 
-        st.markdown("### ☁️ Cross-Cloud Comparison Matrix")
+        st.markdown("### 🖥️ Candidate Hardware Roofline Matrix")
         cloud_report = compare_cloud_costs_for_workload(
             model=arch,
             precision=quant_choice,
@@ -350,18 +366,19 @@ def main():
             batch_size=batch_sz,
             context_tokens=context_len,
             tensor_parallel=tp_degree,
+            custom_hourly_rate=user_rate if user_rate > 0 else None,
         )
         cloud_rows = []
         for c in cloud_report.results:
             cloud_rows.append(
                 {
                     "GPU Accelerator": c.gpu_name,
-                    "Hourly Rate ($/hr)": f"${c.hourly_rate_usd:.2f}",
-                    "Cluster Hourly ($/hr)": f"${c.total_cluster_hourly_usd:.2f}",
                     "TPOT Latency": f"{c.time_per_output_token_ms:.1f} ms",
                     "Throughput / Stream": f"{c.tokens_per_sec_per_user:.1f} tok/s",
-                    "$/1M Tokens": f"${c.cost_per_million_tokens_usd:.4f}",
-                    "Monthly 24/7 Hosting": f"${c.monthly_dedicated_cost_usd:,.2f}",
+                    "Aggregate Throughput": f"{c.aggregate_tokens_per_sec:.1f} tok/s",
+                    "$/1M Tokens": (
+                        f"${c.cost_per_million_tokens_usd:.4f}" if user_rate > 0 else "--"
+                    ),
                 }
             )
         st.dataframe(cloud_rows, use_container_width=True)

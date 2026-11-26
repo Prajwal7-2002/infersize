@@ -35,13 +35,12 @@ Renting GPU clusters just to discover a model runs out of memory or costs 10x mo
 
 * **Rigorous Mathematical Accounting**: Derives exact parameter counts and tensor bytes directly from architectural specs (layers, hidden dims, GQA heads, SwiGLU FFNs).
 * **Multi-GPU Comparison Matrix (`infersize compare`)**: Evaluates a model workload across candidate accelerators side-by-side, flags OOM deficits, and identifies the **Right-Sized / Cost-Effective GPU** vs **Peak Throughput GPU**.
-* **Cloud Cost & TCO Engine (`infersize cost`)**:
+* **Decode Roofline & Optional Unit Cost (`infersize cost`)**:
   * Models memory-bandwidth decode throughput ($\text{tok/s} = \frac{B \cdot \text{BW} \cdot \eta}{W + KV}$). By default this is a **ceiling**; add `--overhead-ms` for a realistic estimate (see [Validation](#-validation-against-real-hardware)).
   * GGUF formats (`q4_k_m`, `q4_0`, `q8_0`) with their real bits per weight, and `--bandwidth` to override a laptop GPU's memory bandwidth.
   * Computes Time Per Output Token (TPOT latency in ms).
-  * Direct cloud unit economics: **\$ / 1 Million Tokens** and monthly 24/7 dedicated hosting cost.
-  * Built-in pricing for **RunPod**, **Lambda Labs**, **AWS EC2**, and **Google Cloud (GCP)**.
-  * Cross-cloud comparison matrix (`--compare-clouds`) and hardware comparison (`--compare-all`).
+  * Optional unit economics (**\$ / 1 Million Tokens** and 24/7 monthly cost) when you pass your own `--rate <USD/hr>` (built-in cloud rate tables were removed so unverified numbers are never assumed).
+  * Hardware throughput comparison (`--compare-all`).
 * **Tensor Parallelism (TP) Modeling**: Partitions weights, KV cache, activations, and cluster rental rates across $N$ GPUs analytically.
 * **Multi-Precision Support**: Models memory footprint across `FP32`, `FP16`/`BF16`, `INT8`/`FP8`, `INT4`/`FP4`, and `BitNet 1.58b`.
 * **Sub-Byte KV-Cache Scaling**: Accurately models KV-cache savings for `FP16`, `INT8`, and `INT4` KV quantization.
@@ -102,19 +101,19 @@ uv run pytest
 > 🌐 **Live Web Studio**: Prefer zero installation? Use the interactive calculator directly in your browser at **[infersize.streamlit.app](https://infersize.streamlit.app/)**.
 
 
-### 1. Cloud Cost & Throughput Sizing (\$/1M Tokens)
+### 1. Decode Roofline & Optional Unit Cost (\$/1M Tokens)
 
-Predict generation throughput, TPOT latency, and cost per million tokens:
+Predict generation throughput, TPOT latency, and optional cost per million tokens (using a user-supplied `--rate`):
 
 ```bash
-infersize cost --model qwen2.5-7b --gpu rtx4090 --batch-size 16 --context 2048
+infersize cost --model qwen2.5-7b --gpu rtx4090 --batch-size 16 --context 2048 --rate 0.44
 ```
 
 Output:
 ```text
-╭──────────── ⚡ INFERSIZE: CLOUD SERVING ROOFLINE & TCO ANALYSIS ─────────────╮
+╭──────────── ⚡ INFERSIZE: DECODE ROOFLINE & UNIT ECONOMICS ─────────────────╮
 │ Model: qwen2.5-7b | GPU: NVIDIA GeForce RTX 4090 (24GB) (TP=1)               │
-│ Provider: RUNPOD ($0.44/hr cluster) | Batch: 16 | Context: 2,048 tokens      │
+│ Rate: $0.44/hr cluster (CUSTOM) | Batch: 16 | Context: 2,048 tokens          │
 │ Status: ✔ FIT - CAPACITY NORMAL                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
   Metric                                      Value   Engineering Insight
@@ -130,24 +129,6 @@ Output:
   Cluster Rental Rate                    $0.44 / hr   $0.44/hr per GPU x 1 GPUs
   COST PER 1M TOKENS                        $0.1621   Direct operational unit cost
   24/7 Dedicated Monthly               $321.20 / mo   Baseline idle cluster rental (730h)
-```
-
-Compare costs across cloud providers for a single GPU:
-```bash
-infersize cost --model qwen2.5-7b --gpu a100-80gb --compare-clouds
-```
-
-Output:
-```text
-       Cloud Provider Price Comparison for NVIDIA A100 SXM4 (80GB HBM2e)
-╭──────────┬──────────────┬─────────────────┬─────────────────┬────────────────╮
-│ Provider │ Hourly / GPU │ Total Cluster/Hr│ Cost / 1M Tokens│ Monthly (730h) │
-├──────────┼──────────────┼─────────────────┼─────────────────┼────────────────┤
-│ RUNPOD   │        $1.89 │           $1.89 │         $4.9399 │       $1379.70 │
-│ LAMBDA   │        $1.49 │           $1.49 │         $3.8944 │       $1087.70 │
-│ AWS      │        $5.12 │           $5.12 │        $13.3821 │       $3737.60 │
-│ GCP      │        $3.67 │           $3.67 │         $9.5922 │       $2679.10 │
-╰──────────┴──────────────┴─────────────────┴─────────────────┴────────────────╯
 ```
 
 ---

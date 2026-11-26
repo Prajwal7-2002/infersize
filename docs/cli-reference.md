@@ -46,9 +46,9 @@ infersize fit --model qwen2.5-7b --quant int4 --context-length 4096
 ---
 
 ## 5. `infersize cost`
-Calculate cloud TCO, hourly rental expenses, and cost per 1M tokens across providers:
+Calculate decode roofline throughput, TPOT latency, and optional cost per 1M tokens when `--rate` is supplied:
 ```bash
-infersize cost --model qwen2.5-7b --quant fp16 --clouds aws,runpod,lambda
+infersize cost --model qwen2.5-7b --quant fp16 --gpu rtx4090 --rate 0.44
 ```
 
 ---

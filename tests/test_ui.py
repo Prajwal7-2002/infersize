@@ -53,8 +53,8 @@ def test_ui_backend_pipeline_execution():
     )
     assert spec.speedup_ratio > 1.0
 
-    # Mode 3: Cost and cloud comparison
-    cost = estimate_serving_cost(
+    # Mode 3: Roofline throughput & optional user-rate unit economics
+    cost_no_rate = estimate_serving_cost(
         model=arch,
         gpu=gpu,
         precision="int4",
@@ -63,8 +63,22 @@ def test_ui_backend_pipeline_execution():
         context_tokens=2048,
         tensor_parallel=1,
     )
-    assert cost.cost_per_million_tokens_usd > 0
-    assert cost.monthly_dedicated_cost_usd > 0
+    assert cost_no_rate.tokens_per_sec_per_user > 0
+    assert cost_no_rate.cost_per_million_tokens_usd == 0.0
+    assert cost_no_rate.monthly_dedicated_cost_usd == 0.0
+
+    cost_with_rate = estimate_serving_cost(
+        model=arch,
+        gpu=gpu,
+        precision="int4",
+        kv_cache_dtype="fp16",
+        batch_size=4,
+        context_tokens=2048,
+        tensor_parallel=1,
+        custom_hourly_rate=0.44,
+    )
+    assert cost_with_rate.cost_per_million_tokens_usd > 0
+    assert cost_with_rate.monthly_dedicated_cost_usd > 0
 
     cloud_comp = compare_cloud_costs_for_workload(
         model=arch,
@@ -75,7 +89,8 @@ def test_ui_backend_pipeline_execution():
         tensor_parallel=1,
     )
     assert len(cloud_comp.results) > 0
-    assert cloud_comp.results[0].monthly_dedicated_cost_usd > 0
+    assert cloud_comp.results[0].tokens_per_sec_per_user > 0
+    assert cloud_comp.results[0].monthly_dedicated_cost_usd == 0.0
 
     # Mode 4: Local fit (live auto-detection + simulated hardware preset)
     hw = detect_local_hardware()

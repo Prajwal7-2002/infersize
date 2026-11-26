@@ -45,7 +45,7 @@ Deploying large language models often results in expensive surprises:
 │  │ • Right-Sized vs Peak Throughput recommendations                  │ │
 │  │ • Speculative Decoding Leviathan Speedup & Joint VRAM Planner     │ │
 │  │ • Local Physical Hardware Zero-OOM Verifier (NVML / PyTorch)      │ │
-│  │ • Cloud TCO (\$ / 1M tokens) across AWS, GCP, Azure, RunPod, Lambda│ │
+│  │ • Decode Roofline Throughput & User-Supplied Rate (\$ / 1M tokens) │ │
 │  └───────────────────────────────────────────────────────────────────┘ │
 └────────────────────────────────────────────────────────────────────────┘
 ```

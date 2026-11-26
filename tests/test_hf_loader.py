@@ -291,9 +291,11 @@ def test_cli_commands_with_config(tmp_path):
     assert "HARDWARE COMPARISON MATRIX" in res_cmp.stdout
 
     # 3. cost
-    res_cost = runner.invoke(app, ["cost", "--config", str(cfg_file), "--gpu", "rtx4090"])
+    res_cost = runner.invoke(
+        app, ["cost", "--config", str(cfg_file), "--gpu", "rtx4090", "--rate", "0.44"]
+    )
     assert res_cost.exit_code == 0
-    assert "CLOUD SERVING ROOFLINE & TCO ANALYSIS" in res_cost.stdout
+    assert "DECODE ROOFLINE" in res_cost.stdout
     assert "COST PER 1M TOKENS" in res_cost.stdout
 
     # 4. report

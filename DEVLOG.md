@@ -108,3 +108,8 @@ where Ollama measures ~164-200 tok/s.
   121.5 GB/s measured copy), below NVIDIA's maximum.
 - **Tests**: `tests/test_validation.py` (ceiling never below measured; leave-one-out error < 15%) with the raw
   data in `tests/data/measured_rtx3050_ollama.json`; spec, precision and CLI error tests. 60 tests.
+
+## 2026-11-26: v0.3.3 - Remove unsourced cloud GPU pricing tables
+
+- Removed hardcoded cloud GPU hourly pricing tables (`src/infersize/hardware/pricing.py`) that lacked primary pricing sources or verification dates (PR #19).
+- `infersize cost`, `infersize report`, and the UI now require explicit `--rate` input from the user instead of falling back to hardcoded USD/hour estimates.
